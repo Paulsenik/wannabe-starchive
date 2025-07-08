@@ -1,0 +1,14 @@
+# frontend/Trunk.toml
+[build]
+target = "wasm32-unknown-unknown"
+public_url = "/"
+
+[clean]
+dist = [
+    "dist",
+]
+
+[serve]
+address = "0.0.0.0"
+port = 8080
+open = false # Don't automatically open the browser

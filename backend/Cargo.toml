@@ -1,0 +1,20 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rocket = { version = "0.5.0-rc.3", features = ["json"] }
+elasticsearch = { version = "9.0.0-alpha.1", default-features = false, features = ["native-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dotenv = "0.15"
+log = "0.4"
+env_logger = "0.11"
+yt-transcript-rs = "0.1.8" # For fetching YouTube captions
+reqwest = { version = "0.12", features = ["json"], optional = true } # Optional, for broader YouTube API if needed
+tokio-cron-scheduler = "0.9" # For scheduling the crawler
+url = "2.5" # For URL parsing
+
+[features]
+youtube_data_api = ["reqwest"] # Feature to enable YouTube Data API related functionality

@@ -1,0 +1,11 @@
+# youtube-caption-search/Cargo.toml
+[workspace]
+members = [
+    "backend",
+    "frontend",
+]
+resolver = "2"
+
+[profile.release]
+lto = true
+opt-level = 's'

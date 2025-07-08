@@ -2,3 +2,10 @@
 .idea/
 .venv/
 out/
+
+# Added by cargo
+
+/target
+/backend/target
+/frontend/target
+*.lock
