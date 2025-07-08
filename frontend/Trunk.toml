@@ -1,12 +1,9 @@
 # frontend/Trunk.toml
 [build]
-target = "wasm32-unknown-unknown"
 public_url = "/"
 
 [clean]
-dist = [
-    "dist",
-]
+dist = "dist"
 
 [serve]
 address = "0.0.0.0"

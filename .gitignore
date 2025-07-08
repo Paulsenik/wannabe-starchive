@@ -9,3 +9,4 @@ out/
 /backend/target
 /frontend/target
 *.lock
+/frontend/dist
