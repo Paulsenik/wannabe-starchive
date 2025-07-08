@@ -15,9 +15,9 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch) {
     // from channels you're interested in, or a list of popular videos.
     let video_ids = vec![
         "dQw4w9WgXcQ", // Rick Astley - Never Gonna Give You Up
-        "jNQXAC9MKEB", // Me at the zoo (first YouTube video)
-        "k_9_gQ_f6_Q", // Example of a tech talk or educational video
-        "q_9_gQ_f6_Q", // Another example video
+        "jNQXAC9IVRw", // Me at the zoo (first YouTube video)
+        "jtreGFPZQDE", // Elastic Search with RUST
+        "KhPQtXQpiZc", // Esperia Prowler Utility
     ];
 
     let api =

@@ -149,7 +149,7 @@ pub fn app() -> Html {
                                     <div class="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
                                         <p class="text-sm text-gray-500 mb-1">
                                             {"Video ID: "}
-                                            <a href={format!("https://www.youtube.com/watch?v={}", result.video_id)} target="_blank" class="text-blue-600 hover:underline">
+                                            <a href={format!("https://www.youtube.com/watch?v={}&t={}s", result.video_id, result.start_time)} target="_blank" class="text-blue-600 hover:underline">
                                                 { &result.video_id }
                                             </a>
                                             {format!(" ({}s - {}s)", result.start_time as u32, result.end_time as u32)}
