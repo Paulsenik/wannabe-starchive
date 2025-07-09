@@ -11,8 +11,8 @@ use yt_transcript_rs::api::YouTubeTranscriptApi;
 // (e.g., YouTube Data API, a list of channels, or a queue).
 static VIDEO_IDS: &[&str] = &[
     "dQw4w9WgXcQ", // Never Gonna Give You Up
-    "jNQXAC9IVRw", // Me at the zoo
-    "9bZkp7q19f0", // Gangnam Style
+    "tJmpdPnu1Ss", // SCL: Earning in the 'verse
+    "la7t9x4ijVY", // Stormbreaker
 ];
 
 pub struct VideoQueue {
@@ -47,6 +47,14 @@ impl VideoQueue {
             queue.pop_front()
         } else {
             None
+        }
+    }
+
+    pub fn get_size(&self) -> usize {
+        if let Ok(queue) = self.queue.lock() {
+            queue.len()
+        } else {
+            0
         }
     }
 }

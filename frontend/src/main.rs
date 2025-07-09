@@ -15,6 +15,12 @@ pub struct SearchResult {
 }
 
 // Main App component
+fn format_timestamp(seconds: f64) -> String {
+    let minutes = (seconds as u32) / 60;
+    let remaining_seconds = (seconds as u32) % 60;
+    format!("{:02}:{:02}", minutes, remaining_seconds)
+}
+
 #[function_component(App)]
 pub fn app() -> Html {
     let search_query = use_state(String::default);
@@ -137,32 +143,53 @@ pub fn app() -> Html {
                     }
                 }
 
-                <div class="mt-8 space-y-4">
+                <div class="mt-8 space-y-6">
                     {
                         if search_results.is_empty() && !*loading && error_message.is_none() && !search_query.is_empty() {
                             html! {
                                 <p class="text-center text-gray-500">{"No results found."}</p>
                             }
                         } else {
+                            let mut grouped_results: std::collections::HashMap<String, Vec<&SearchResult>> = std::collections::HashMap::new();
+                            for result in search_results.iter() {
+                                grouped_results.entry(result.video_id.clone())
+                                    .or_insert_with(Vec::new)
+                                    .push(result);
+                            }
+
                             html! {
-                                for search_results.iter().map(|result| html! {
-                                    <div class="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
-                                        <p class="text-sm text-gray-500 mb-1">
-                                            {"Video ID: "}
-                                            <a href={format!("https://www.youtube.com/watch?v={}&t={}s", result.video_id, result.start_time)} target="_blank" class="text-blue-600 hover:underline">
-                                                { &result.video_id }
-                                            </a>
-                                            {format!(" ({}s - {}s)", result.start_time as u32, result.end_time as u32)}
-                                        </p>
-                                        <p class="text-gray-800 leading-relaxed">
-                                            {
-                                                if let Some(highlight) = &result.highlighted_text {
-                                                    Html::from_html_unchecked(AttrValue::from(highlight.clone()))
-                                                } else {
-                                                    html! { &result.text }
-                                                }
-                                            }
-                                        </p>
+                                for grouped_results.iter().map(|(video_id, results)| html! {
+                                    <div class="bg-gray-100 rounded-lg overflow-hidden">
+                                        <div class="bg-gray-200 p-4">
+                                            <h3 class="text-lg font-semibold text-gray-800">
+                                                {"Video: "}
+                                                <a href={format!("https://www.youtube.com/watch?v={}", video_id)}
+                                                   target="_blank"
+                                                   class="text-blue-600 hover:underline">
+                                                    { video_id }
+                                                </a>
+                                            </h3>
+                                        </div>
+                                        <div class="divide-y divide-gray-200">
+                                            { for results.iter().map(|result| html! {
+                                                <div class="p-4 bg-white">
+                                                    <p class="text-sm text-gray-500 mb-1">
+                                                        <a href={format!("https://www.youtube.com/watch?v={}&t={}s", result.video_id, result.start_time)}
+                                                           target="_blank"
+                                                           class="ml-2 text-blue-600 hover:underline">
+                                                        {format!("{} ↗ ", format_timestamp(result.start_time))}
+                                                        </a>
+                                                        {
+                                                            if let Some(highlight) = &result.highlighted_text {
+                                                                Html::from_html_unchecked(AttrValue::from(highlight.clone()))
+                                                            } else {
+                                                                html! { &result.text }
+                                                            }
+                                                        }
+                                                    </p>
+                                                </div>
+                                            })}
+                                        </div>
                                     </div>
                                 })
                             }

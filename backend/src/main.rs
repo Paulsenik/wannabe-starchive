@@ -71,16 +71,25 @@ async fn search_captions(
     info!("Searching for: '{query_string}' (from={from}, size={size})");
 
     let search_body = json!({
+        "size": 10,
         "query": {
             "match": {
                 "text": {
                     "query": query_string,
-                    "fuzziness": "AUTO" // Allow for some typos
+                    "fuzziness": "AUTO"
                 }
             }
         },
+        "collapse": {
+            "field": "video_id",
+            "inner_hits": {
+                "name": "captions",
+                "size": 10000
+            }
+        },
+        "sort": ["_score"],
         "from": from,
-        "size": size,
+        "_source": ["video_id", "text", "start_time", "end_time"],
         "highlight": {
             "fields": {
                 "text": {}
@@ -100,30 +109,48 @@ async fn search_captions(
                     Ok(json_response) => {
                         let mut results: Vec<SearchResult> = Vec::new();
                         if let Some(hits) = json_response["hits"]["hits"].as_array() {
-                            for hit in hits {
-                                if let Some(source) = hit["_source"].as_object() {
-                                    let video_id =
-                                        source["video_id"].as_str().unwrap_or("N/A").to_string();
-                                    let text = source["text"].as_str().unwrap_or("N/A").to_string();
-                                    let start_time = source["start_time"].as_f64().unwrap_or(0.0);
-                                    let end_time = source["end_time"].as_f64().unwrap_or(0.0);
-                                    let mut highlighted_text = None;
+                            for hit in hits.iter() {
+                                if let Some(inner_hits) =
+                                    hit["inner_hits"]["captions"]["hits"]["hits"].as_array()
+                                {
+                                    for inner_hit in inner_hits {
+                                        if let Some(source) = inner_hit["_source"].as_object() {
+                                            let video_id = source["video_id"]
+                                                .as_str()
+                                                .unwrap_or("N/A")
+                                                .to_string();
+                                            let text = source["text"]
+                                                .as_str()
+                                                .unwrap_or("N/A")
+                                                .to_string();
+                                            let start_time =
+                                                source["start_time"].as_f64().unwrap_or(0.0);
+                                            let end_time =
+                                                source["end_time"].as_f64().unwrap_or(0.0);
+                                            let mut highlighted_text = None;
 
-                                    if let Some(highlight) = hit["highlight"]["text"].as_array() {
-                                        if let Some(first_highlight) = highlight.first() {
-                                            highlighted_text = Some(
-                                                first_highlight.as_str().unwrap_or("").to_string(),
-                                            );
+                                            if let Some(highlight) =
+                                                inner_hit["highlight"]["text"].as_array()
+                                            {
+                                                if let Some(first_highlight) = highlight.first() {
+                                                    highlighted_text = Some(
+                                                        first_highlight
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                    );
+                                                }
+                                            }
+
+                                            results.push(SearchResult {
+                                                video_id,
+                                                text,
+                                                start_time,
+                                                end_time,
+                                                highlighted_text,
+                                            });
                                         }
                                     }
-
-                                    results.push(SearchResult {
-                                        video_id,
-                                        text,
-                                        start_time,
-                                        end_time,
-                                        highlighted_text,
-                                    });
                                 }
                             }
                         }
@@ -225,6 +252,9 @@ async fn rocket() -> _ {
         let es_client_for_job = es_client_clone.clone();
         let queue = video_queue_clone.clone();
         Box::pin(async move {
+            if queue.get_size() == 0 {
+                return;
+            }
             info!("Running YouTube caption crawl job...");
             crawl_youtube_captions(&es_client_for_job, &queue).await;
             info!("YouTube caption crawl job finished.");
