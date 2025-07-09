@@ -14,6 +14,7 @@ Inspired by [Starchives](https://github.com/kyjackson/starchives?tab=readme-ov-f
 - Docker Compose
 - [Rust](https://www.rust-lang.org/tools/install)
   - cargo install trunk
+  - rustup target add wasm32-unknown-unknown
 - OpenSSL
     - Debian:
         ```bash

@@ -27,12 +27,14 @@ mod models; // We'll define data models here
 
 use models::{Caption, SearchResult}; // <--- ENSURED THIS IS CORRECT
 
+use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_captions;
 
 // State struct to hold the Elasticsearch client and other shared resources
 pub struct AppState {
     pub es_client: Elasticsearch,
     pub scheduler: Mutex<JobScheduler>,
+    pub video_queue: Arc<VideoQueue>,
 }
 
 // --- API Endpoints ---
@@ -41,6 +43,11 @@ pub struct AppState {
 #[get("/")]
 async fn index() -> &'static str {
     "Welcome to the YouTube Caption Search Backend!"
+}
+
+#[get("/queue/add/<id>")]
+async fn queue(state: &State<AppState>, id: &str) {
+    state.video_queue.add_video(id.to_string());
 }
 
 /// Search endpoint
@@ -166,6 +173,8 @@ async fn rocket() -> _ {
         .unwrap();
     let es_client = Elasticsearch::new(transport);
 
+    let video_queue = Arc::new(VideoQueue::new());
+
     // Create Elasticsearch index if it doesn't exist
     // Define the mapping for the 'youtube_captions' index
     let create_index_body = json!({
@@ -211,11 +220,13 @@ async fn rocket() -> _ {
     // Add a cron job to crawl YouTube captions every 30 minutes (for example)
     // In a real application, you'd want a more sophisticated way to get video IDs.
     // For now, we'll use a hardcoded list in the crawler module.
-    let crawl_job = Job::new_async("0 */30 * * * *", move |_uuid, _l| {
+    let video_queue_clone = video_queue.clone();
+    let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
         let es_client_for_job = es_client_clone.clone();
+        let queue = video_queue_clone.clone();
         Box::pin(async move {
             info!("Running YouTube caption crawl job...");
-            crawl_youtube_captions(&es_client_for_job).await;
+            crawl_youtube_captions(&es_client_for_job, &queue).await;
             info!("YouTube caption crawl job finished.");
         })
     })
@@ -242,7 +253,8 @@ async fn rocket() -> _ {
         .manage(AppState {
             es_client,
             scheduler: Mutex::new(scheduler),
+            video_queue,
         })
-        .mount("/", routes![index, search_captions])
+        .mount("/", routes![index, search_captions, queue])
         .attach(cors)
 }

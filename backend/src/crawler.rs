@@ -2,32 +2,60 @@ use crate::Caption;
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
 use serde_json::json;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
 
 // This function will be called periodically by the scheduler.
 // In a real application, you'd fetch video IDs from a more dynamic source
 // (e.g., YouTube Data API, a list of channels, or a queue).
-pub async fn crawl_youtube_captions(es_client: &Elasticsearch) {
-    info!("Starting YouTube caption crawl...");
+static VIDEO_IDS: &[&str] = &[
+    "dQw4w9WgXcQ", // Never Gonna Give You Up
+    "jNQXAC9IVRw", // Me at the zoo
+    "9bZkp7q19f0", // Gangnam Style
+];
 
-    // Example video IDs. Replace with your actual video discovery logic.
-    // For a real application, you'd use the YouTube Data API to find new videos
-    // from channels you're interested in, or a list of popular videos.
-    let video_ids = vec![
-        "dQw4w9WgXcQ", // Rick Astley - Never Gonna Give You Up
-        "jNQXAC9IVRw", // Me at the zoo (first YouTube video)
-        "jtreGFPZQDE", // Elastic Search with RUST
-        "KhPQtXQpiZc", // Esperia Prowler Utility
-    ];
+pub struct VideoQueue {
+    queue: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl VideoQueue {
+    pub fn new() -> Self {
+        let mut queue = VecDeque::new();
+        for &id in VIDEO_IDS {
+            queue.push_back(id.to_string());
+        }
+        VideoQueue {
+            queue: Arc::new(Mutex::new(queue)),
+        }
+    }
+
+    pub fn add_video(&self, video_id: String) {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.push_back(video_id);
+        }
+    }
+
+    pub fn pop_next_video(&self) -> Option<String> {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.pop_front()
+        } else {
+            None
+        }
+    }
+}
+
+pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &VideoQueue) {
+    info!("Starting YouTube caption crawl...");
 
     let api =
         YouTubeTranscriptApi::new(None, None, None).expect("Failed to create YouTubeTranscriptApi");
 
     let languages = &["en"];
 
-    for video_id in video_ids {
+    while let Some(video_id) = video_queue.pop_next_video() {
         info!("Processing video ID: {video_id}");
-        match api.fetch_transcript(video_id, languages, false).await {
+        match api.fetch_transcript(&*video_id, languages, false).await {
             Ok(transcript) => {
                 let mut captions_to_index: Vec<Caption> = Vec::new();
                 for entry in transcript {
@@ -45,8 +73,9 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch) {
 
                 // Index captions into Elasticsearch
                 for caption in captions_to_index {
+                    let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
                     match es_client
-                        .index(IndexParts::Index("youtube_captions"))
+                        .index(IndexParts::IndexId("youtube_captions", &doc_id))
                         .body(json!(caption))
                         .send()
                         .await
