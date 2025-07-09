@@ -19,6 +19,12 @@ pub struct VideoQueue {
     queue: Arc<Mutex<VecDeque<String>>>,
 }
 
+impl Default for VideoQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VideoQueue {
     pub fn new() -> Self {
         let mut queue = VecDeque::new();
@@ -55,7 +61,7 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &Vid
 
     while let Some(video_id) = video_queue.pop_next_video() {
         info!("Processing video ID: {video_id}");
-        match api.fetch_transcript(&*video_id, languages, false).await {
+        match api.fetch_transcript(&video_id, languages, false).await {
             Ok(transcript) => {
                 let mut captions_to_index: Vec<Caption> = Vec::new();
                 for entry in transcript {
