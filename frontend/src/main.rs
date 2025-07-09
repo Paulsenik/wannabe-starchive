@@ -82,9 +82,12 @@ pub struct SearchResultItemProps {
 
 #[function_component(VideoResults)]
 fn video_results(props: &VideoResultsProps) -> Html {
+    let expanded = use_state(|| false);
+
     html! {
         <div class="bg-gray-100 rounded-lg overflow-hidden">
-            <div class="bg-gray-200 p-4">
+            <div class="bg-gray-200 p-4 flex justify-between items-center cursor-pointer"
+                 onclick={let expanded = expanded.clone(); move |_| expanded.set(!*expanded)}>
                 <h3 class="text-lg font-semibold text-gray-800">
                     {"Video: "}
                     <a href={format!("https://www.youtube.com/watch?v={}", props.video_id)}
@@ -93,12 +96,23 @@ fn video_results(props: &VideoResultsProps) -> Html {
                         { &props.video_id }
                     </a>
                 </h3>
+                <span class="text-gray-600">
+                    {if *expanded { "▼" } else { "▶" }}
+                </span>
             </div>
-            <div class="divide-y divide-gray-200">
-                { for props.results.iter().map(|result| html! {
-                    <SearchResultItem result={result.clone()} />
-                })}
-            </div>
+            {
+                if *expanded {
+                    html! {
+                        <div class="divide-y divide-gray-200">
+                            { for props.results.iter().map(|result| html! {
+                                <SearchResultItem result={result.clone()} />
+                            })}
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
         </div>
     }
 }
