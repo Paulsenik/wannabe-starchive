@@ -21,6 +21,137 @@ fn format_timestamp(seconds: f64) -> String {
     format!("{:02}:{:02}", minutes, remaining_seconds)
 }
 
+#[function_component(SearchBar)]
+fn search_bar(props: &SearchBarProps) -> Html {
+    html! {
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+            <input
+                type="text"
+                class="flex-grow p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter search query..."
+                value={props.query.clone()}
+                oninput={props.on_input.clone()}
+                onkeydown={props.on_enter.clone()}
+            />
+            <button
+                class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 ease-in-out"
+                onclick={props.on_search.clone()}
+                disabled={props.loading}
+            >
+                { if props.loading { "Searching..." } else { "Search" } }
+            </button>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct SearchBarProps {
+    pub query: String,
+    pub loading: bool,
+    pub on_input: Callback<InputEvent>,
+    pub on_search: Callback<MouseEvent>,
+    pub on_enter: Callback<KeyboardEvent>,
+}
+
+#[function_component(SearchResultItem)]
+fn search_result_item(props: &SearchResultItemProps) -> Html {
+    html! {
+        <div class="p-4 bg-white">
+            <p class="text-sm text-gray-500 mb-1">
+                <a href={format!("https://www.youtube.com/watch?v={}&t={}s", props.result.video_id, props.result.start_time)}
+                   target="_blank"
+                   class="ml-2 text-blue-600 hover:underline">
+                {format!("{} ↗ ", format_timestamp(props.result.start_time))}
+                </a>
+                {
+                    if let Some(highlight) = &props.result.highlighted_text {
+                        Html::from_html_unchecked(AttrValue::from(highlight.clone()))
+                    } else {
+                        html! { &props.result.text }
+                    }
+                }
+            </p>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct SearchResultItemProps {
+    pub result: SearchResult,
+}
+
+#[function_component(VideoResults)]
+fn video_results(props: &VideoResultsProps) -> Html {
+    html! {
+        <div class="bg-gray-100 rounded-lg overflow-hidden">
+            <div class="bg-gray-200 p-4">
+                <h3 class="text-lg font-semibold text-gray-800">
+                    {"Video: "}
+                    <a href={format!("https://www.youtube.com/watch?v={}", props.video_id)}
+                       target="_blank"
+                       class="text-blue-600 hover:underline">
+                        { &props.video_id }
+                    </a>
+                </h3>
+            </div>
+            <div class="divide-y divide-gray-200">
+                { for props.results.iter().map(|result| html! {
+                    <SearchResultItem result={result.clone()} />
+                })}
+            </div>
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct VideoResultsProps {
+    pub video_id: String,
+    pub results: Vec<SearchResult>,
+}
+
+#[function_component(ResultsList)]
+fn results_list(props: &ResultsListProps) -> Html {
+    if props.results.is_empty()
+        && !props.loading
+        && props.error.is_none()
+        && !props.query.is_empty()
+    {
+        return html! {
+            <p class="text-center text-gray-500">{"No results found."}</p>
+        };
+    }
+
+    let mut grouped_results: std::collections::HashMap<String, Vec<&SearchResult>> =
+        std::collections::HashMap::new();
+    for result in props.results.iter() {
+        grouped_results
+            .entry(result.video_id.clone())
+            .or_insert_with(Vec::new)
+            .push(result);
+    }
+
+    html! {
+        <div class="mt-8 space-y-6">
+            { for grouped_results.iter().map(|(video_id, results)| {
+                html! {
+                    <VideoResults
+                        video_id={video_id.clone()}
+                        results={results.iter().map(|&r| r.clone()).collect::<Vec<_>>()}
+                    />
+                }
+            })}
+        </div>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct ResultsListProps {
+    pub results: Vec<SearchResult>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub query: String,
+}
+
 #[function_component(App)]
 pub fn app() -> Html {
     let search_query = use_state(String::default);
@@ -103,35 +234,20 @@ pub fn app() -> Html {
                     {"YouTube Caption Search"}
                 </h1>
 
-                <div class="flex flex-col sm:flex-row gap-4 mb-6">
-                    <input
-                        type="text"
-                        class="flex-grow p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter search query..."
-                        value={(*search_query).clone()}
-                        oninput={on_input}
-                        onkeydown={
-                            let on_search_clone = on_search.clone();
-                            Callback::from(move |e: KeyboardEvent| {
-                                if e.key() == "Enter" {
-                                    // When pressing Enter, we also need to pass a dummy MouseEvent
-                                    // or adjust the on_search callback to accept a generic event or no event.
-                                    // For simplicity and to match the onclick signature, we'll create a dummy MouseEvent.
-                                    // A better approach for shared logic is to extract the search logic into a separate function
-                                    // that both callbacks can call.
-                                    on_search_clone.emit(MouseEvent::new("click").unwrap()); // Emit a dummy click event
-                                }
-                            })
-                        }
-                    />
-                    <button
-                        class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 ease-in-out"
-                        onclick={on_search}
-                        disabled={*loading}
-                    >
-                        { if *loading { "Searching..." } else { "Search" } }
-                    </button>
-                </div>
+                <SearchBar
+                    query={(*search_query).clone()}
+                    loading={*loading}
+                    on_input={on_input}
+                    on_search={on_search.clone()}
+                    on_enter={
+                        let on_search_clone = on_search.clone();
+                        Callback::from(move |e: KeyboardEvent| {
+                            if e.key() == "Enter" {
+                                on_search_clone.emit(MouseEvent::new("click").unwrap());
+                            }
+                        })
+                    }
+                />
 
                 {
                     if let Some(msg) = &*error_message {
@@ -143,59 +259,12 @@ pub fn app() -> Html {
                     }
                 }
 
-                <div class="mt-8 space-y-6">
-                    {
-                        if search_results.is_empty() && !*loading && error_message.is_none() && !search_query.is_empty() {
-                            html! {
-                                <p class="text-center text-gray-500">{"No results found."}</p>
-                            }
-                        } else {
-                            let mut grouped_results: std::collections::HashMap<String, Vec<&SearchResult>> = std::collections::HashMap::new();
-                            for result in search_results.iter() {
-                                grouped_results.entry(result.video_id.clone())
-                                    .or_insert_with(Vec::new)
-                                    .push(result);
-                            }
-
-                            html! {
-                                for grouped_results.iter().map(|(video_id, results)| html! {
-                                    <div class="bg-gray-100 rounded-lg overflow-hidden">
-                                        <div class="bg-gray-200 p-4">
-                                            <h3 class="text-lg font-semibold text-gray-800">
-                                                {"Video: "}
-                                                <a href={format!("https://www.youtube.com/watch?v={}", video_id)}
-                                                   target="_blank"
-                                                   class="text-blue-600 hover:underline">
-                                                    { video_id }
-                                                </a>
-                                            </h3>
-                                        </div>
-                                        <div class="divide-y divide-gray-200">
-                                            { for results.iter().map(|result| html! {
-                                                <div class="p-4 bg-white">
-                                                    <p class="text-sm text-gray-500 mb-1">
-                                                        <a href={format!("https://www.youtube.com/watch?v={}&t={}s", result.video_id, result.start_time)}
-                                                           target="_blank"
-                                                           class="ml-2 text-blue-600 hover:underline">
-                                                        {format!("{} ↗ ", format_timestamp(result.start_time))}
-                                                        </a>
-                                                        {
-                                                            if let Some(highlight) = &result.highlighted_text {
-                                                                Html::from_html_unchecked(AttrValue::from(highlight.clone()))
-                                                            } else {
-                                                                html! { &result.text }
-                                                            }
-                                                        }
-                                                    </p>
-                                                </div>
-                                            })}
-                                        </div>
-                                    </div>
-                                })
-                            }
-                        }
-                    }
-                </div>
+                <ResultsList
+                    results={(*search_results).clone()}
+                    loading={*loading}
+                    error={(*error_message).clone()}
+                    query={(*search_query).clone()}
+                />
             </div>
         </div>
     }
