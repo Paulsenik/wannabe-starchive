@@ -52,26 +52,9 @@ async fn queue(state: &State<AppState>, id: &str) {
 
 /// Search endpoint
 /// Takes a search query and returns matching captions from Elasticsearch.
-#[get("/search?<q>&<page>&<page_size>")]
-async fn search_captions(
-    state: &State<AppState>,
-    q: Option<&str>,
-    page: Option<usize>,
-    page_size: Option<usize>,
-) -> Json<Vec<SearchResult>> {
-    let client = &state.es_client;
-    let query_string = q.unwrap_or("");
-    let from = page.unwrap_or(0) * page_size.unwrap_or(10);
-    let size = page_size.unwrap_or(10);
-
-    if query_string.is_empty() {
-        return Json(vec![]);
-    }
-
-    info!("Searching for: '{query_string}' (from={from}, size={size})");
-
-    let search_body = json!({
-        "size": 10,
+fn build_search_query(query_string: &str, from: usize, size: usize) -> Value {
+    json!({
+        "size": size,
         "query": {
             "match": {
                 "text": {
@@ -95,9 +78,68 @@ async fn search_captions(
                 "text": {}
             }
         }
-    });
+    })
+}
 
-    match client
+fn parse_search_result(source: &serde_json::Map<String, Value>, inner_hit: &Value) -> SearchResult {
+    let video_id = source["video_id"].as_str().unwrap_or("N/A").to_string();
+    let text = source["text"].as_str().unwrap_or("N/A").to_string();
+    let start_time = source["start_time"].as_f64().unwrap_or(0.0);
+    let end_time = source["end_time"].as_f64().unwrap_or(0.0);
+
+    let highlighted_text = inner_hit["highlight"]["text"]
+        .as_array()
+        .and_then(|highlight| highlight.first())
+        .and_then(|first_highlight| first_highlight.as_str())
+        .map(String::from);
+
+    SearchResult {
+        video_id,
+        text,
+        start_time,
+        end_time,
+        highlighted_text,
+    }
+}
+
+async fn process_search_response(response: Value) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+
+    if let Some(hits) = response["hits"]["hits"].as_array() {
+        for hit in hits {
+            if let Some(inner_hits) = hit["inner_hits"]["captions"]["hits"]["hits"].as_array() {
+                for inner_hit in inner_hits {
+                    if let Some(source) = inner_hit["_source"].as_object() {
+                        results.push(parse_search_result(source, inner_hit));
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
+
+#[get("/search?<q>&<page>&<page_size>")]
+async fn search_captions(
+    state: &State<AppState>,
+    q: Option<&str>,
+    page: Option<usize>,
+    page_size: Option<usize>,
+) -> Json<Vec<SearchResult>> {
+    let query_string = q.unwrap_or("");
+    let from = page.unwrap_or(0) * page_size.unwrap_or(10);
+    let size = page_size.unwrap_or(10);
+
+    if query_string.is_empty() {
+        return Json(vec![]);
+    }
+
+    info!("Searching for: '{query_string}' (from={from}, size={size})");
+    let search_body = build_search_query(query_string, from, size);
+
+    match state
+        .es_client
         .search(SearchParts::Index(&["youtube_captions"]))
         .body(search_body)
         .send()
@@ -107,53 +149,7 @@ async fn search_captions(
             if response.status_code().is_success() {
                 match response.json::<Value>().await {
                     Ok(json_response) => {
-                        let mut results: Vec<SearchResult> = Vec::new();
-                        if let Some(hits) = json_response["hits"]["hits"].as_array() {
-                            for hit in hits.iter() {
-                                if let Some(inner_hits) =
-                                    hit["inner_hits"]["captions"]["hits"]["hits"].as_array()
-                                {
-                                    for inner_hit in inner_hits {
-                                        if let Some(source) = inner_hit["_source"].as_object() {
-                                            let video_id = source["video_id"]
-                                                .as_str()
-                                                .unwrap_or("N/A")
-                                                .to_string();
-                                            let text = source["text"]
-                                                .as_str()
-                                                .unwrap_or("N/A")
-                                                .to_string();
-                                            let start_time =
-                                                source["start_time"].as_f64().unwrap_or(0.0);
-                                            let end_time =
-                                                source["end_time"].as_f64().unwrap_or(0.0);
-                                            let mut highlighted_text = None;
-
-                                            if let Some(highlight) =
-                                                inner_hit["highlight"]["text"].as_array()
-                                            {
-                                                if let Some(first_highlight) = highlight.first() {
-                                                    highlighted_text = Some(
-                                                        first_highlight
-                                                            .as_str()
-                                                            .unwrap_or("")
-                                                            .to_string(),
-                                                    );
-                                                }
-                                            }
-
-                                            results.push(SearchResult {
-                                                video_id,
-                                                text,
-                                                start_time,
-                                                end_time,
-                                                highlighted_text,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        let results = process_search_response(json_response).await;
                         info!("Found {} search results.", results.len());
                         Json(results)
                     }
@@ -180,30 +176,7 @@ async fn search_captions(
 
 // --- Rocket Launch ---
 
-#[launch]
-async fn rocket() -> _ {
-    // Initialize logger
-    Builder::new().filter_level(LevelFilter::Info).init();
-
-    info!("Starting Rocket backend...");
-
-    // Load environment variables from .env file
-    dotenv::dotenv().ok();
-
-    // Initialize Elasticsearch client
-    let es_url =
-        std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
-    info!("Connecting to Elasticsearch at: {es_url}");
-
-    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(es_url.parse().unwrap()))
-        .build()
-        .unwrap();
-    let es_client = Elasticsearch::new(transport);
-
-    let video_queue = Arc::new(VideoQueue::new());
-
-    // Create Elasticsearch index if it doesn't exist
-    // Define the mapping for the 'youtube_captions' index
+async fn create_es_index(es_client: &Elasticsearch) {
     let create_index_body = json!({
         "mappings": {
             "properties": {
@@ -226,7 +199,6 @@ async fn rocket() -> _ {
             if response.status_code().is_success() {
                 info!("Elasticsearch index 'youtube_captions' created or already exists.");
             } else {
-                // Check if the error is "resource_already_exists_exception"
                 let response_text = response.text().await.unwrap_or_default();
                 if response_text.contains("resource_already_exists_exception") {
                     info!("Elasticsearch index 'youtube_captions' already exists.");
@@ -239,6 +211,25 @@ async fn rocket() -> _ {
             error!("Failed to connect to Elasticsearch to create index: {e:?}");
         }
     }
+}
+
+#[launch]
+async fn rocket() -> _ {
+    Builder::new().filter_level(LevelFilter::Info).init();
+    info!("Starting Rocket backend...");
+    dotenv::dotenv().ok();
+
+    let es_url =
+        std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    info!("Connecting to Elasticsearch at: {es_url}");
+
+    let transport = TransportBuilder::new(SingleNodeConnectionPool::new(es_url.parse().unwrap()))
+        .build()
+        .unwrap();
+    let es_client = Elasticsearch::new(transport);
+    let video_queue = Arc::new(VideoQueue::new());
+
+    create_es_index(&es_client).await;
 
     // Initialize job scheduler for the crawler
     let scheduler = JobScheduler::new().await.unwrap();
@@ -255,9 +246,7 @@ async fn rocket() -> _ {
             if queue.get_size() == 0 {
                 return;
             }
-            info!("Running YouTube caption crawl job...");
             crawl_youtube_captions(&es_client_for_job, &queue).await;
-            info!("YouTube caption crawl job finished.");
         })
     })
     .unwrap();

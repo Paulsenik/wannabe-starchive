@@ -147,10 +147,12 @@ fn results_list(props: &ResultsListProps) -> Html {
     html! {
         <div class="mt-8 space-y-6">
             { for grouped_results.iter().map(|(video_id, results)| {
+                let mut sorted_results = results.iter().map(|&r| r.clone()).collect::<Vec<_>>();
+                sorted_results.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
                 html! {
                     <VideoResults
                         video_id={video_id.clone()}
-                        results={results.iter().map(|&r| r.clone()).collect::<Vec<_>>()}
+                        results={sorted_results}
                     />
                 }
             })}
@@ -164,6 +166,56 @@ pub struct ResultsListProps {
     pub loading: bool,
     pub error: Option<String>,
     pub query: String,
+}
+
+async fn execute_search(
+    query: String,
+    search_results: UseStateHandle<Vec<SearchResult>>,
+    error_message: UseStateHandle<Option<String>>,
+    loading: UseStateHandle<bool>,
+) {
+    let response = perform_search_request(&query).await;
+    handle_search_response(response, &search_results, &error_message).await;
+    loading.set(false);
+}
+
+async fn perform_search_request(query: &str) -> Result<gloo_net::http::Response, gloo_net::Error> {
+    let backend_url = "http://localhost:8000";
+    let url = format!("{backend_url}/search?q={query}");
+    Request::get(&url).send().await
+}
+
+async fn handle_search_response(
+    response: Result<gloo_net::http::Response, gloo_net::Error>,
+    search_results: &UseStateHandle<Vec<SearchResult>>,
+    error_message: &UseStateHandle<Option<String>>,
+) {
+    match response {
+        Ok(response) => {
+            if response.ok() {
+                match response.json::<Vec<SearchResult>>().await {
+                    Ok(results) => search_results.set(results),
+                    Err(e) => handle_error(
+                        error_message,
+                        format!("Failed to parse search results: {e}"),
+                    ),
+                }
+            } else {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                handle_error(
+                    error_message,
+                    format!("Search failed: HTTP {status} - {text}"),
+                );
+            }
+        }
+        Err(e) => handle_error(error_message, format!("Failed to connect to backend: {e}")),
+    }
+}
+
+fn handle_error(error_message: &UseStateHandle<Option<String>>, error: String) {
+    error_message.set(Some(error.clone()));
+    web_sys::console::error_1(&error.into());
 }
 
 #[function_component(App)]
@@ -201,42 +253,7 @@ pub fn app() -> Html {
             error_message.set(None); // Clear previous errors
 
             wasm_bindgen_futures::spawn_local(async move {
-                let backend_url = "http://localhost:8000"; // Rocket backend URL
-                let url = format!("{backend_url}/search?q={query}");
-
-                match Request::get(&url).send().await {
-                    Ok(response) => {
-                        if response.ok() {
-                            match response.json::<Vec<SearchResult>>().await {
-                                Ok(results) => {
-                                    search_results.set(results);
-                                }
-                                Err(e) => {
-                                    error_message
-                                        .set(Some(format!("Failed to parse search results: {e}")));
-                                    web_sys::console::error_1(
-                                        &format!("Failed to parse search results: {e}").into(),
-                                    );
-                                }
-                            }
-                        } else {
-                            let status = response.status();
-                            let text = response.text().await.unwrap_or_default();
-                            error_message
-                                .set(Some(format!("Search failed: HTTP {status} - {text}")));
-                            web_sys::console::error_1(
-                                &format!("Search failed: HTTP {status} - {text}").into(),
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        error_message.set(Some(format!("Failed to connect to backend: {e}")));
-                        web_sys::console::error_1(
-                            &format!("Failed to connect to backend: {e}").into(),
-                        );
-                    }
-                }
-                loading.set(false);
+                execute_search(query, search_results, error_message, loading).await;
             });
         })
     };

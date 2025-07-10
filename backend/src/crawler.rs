@@ -9,11 +9,7 @@ use yt_transcript_rs::api::YouTubeTranscriptApi;
 // This function will be called periodically by the scheduler.
 // In a real application, you'd fetch video IDs from a more dynamic source
 // (e.g., YouTube Data API, a list of channels, or a queue).
-static VIDEO_IDS: &[&str] = &[
-    "dQw4w9WgXcQ", // Never Gonna Give You Up
-    "tJmpdPnu1Ss", // SCL: Earning in the 'verse
-    "la7t9x4ijVY", // Stormbreaker
-];
+static VIDEO_IDS: &[&str] = &[];
 
 pub struct VideoQueue {
     queue: Arc<Mutex<VecDeque<String>>>,
