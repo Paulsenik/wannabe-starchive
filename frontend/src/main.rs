@@ -1,7 +1,7 @@
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use web_sys::HtmlInputElement;
 use web_sys::MouseEvent;
+use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*; // Import MouseEvent
 
 // Data models for frontend
@@ -174,6 +174,12 @@ async fn execute_search(
     error_message: UseStateHandle<Option<String>>,
     loading: UseStateHandle<bool>,
 ) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(history) = window.history() {
+            let url = format!("?q={}", query);
+            let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
+        }
+    }
     let response = perform_search_request(&query).await;
     handle_search_response(response, &search_results, &error_message).await;
     loading.set(false);
