@@ -1,6 +1,8 @@
 use crate::Caption;
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -10,6 +12,65 @@ use yt_transcript_rs::api::YouTubeTranscriptApi;
 // In a real application, you'd fetch video IDs from a more dynamic source
 // (e.g., YouTube Data API, a list of channels, or a queue).
 static VIDEO_IDS: &[&str] = &[];
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct VideoMetadata {
+    pub title: String,
+    pub channel_name: String,
+    pub upload_date: String,
+    pub likes: i64,
+    pub views: i64,
+    pub duration: String,
+    pub comment_count: i64,
+}
+
+async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let url = format!(
+        "https://www.googleapis.com/youtube/v3/videos?id={}&key={}&part=snippet,statistics,contentDetails",
+        video_id, api_key
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+    let item = &response["items"][0];
+
+    Ok(VideoMetadata {
+        title: item["snippet"]["title"].as_str().unwrap_or("").to_string(),
+        channel_name: item["snippet"]["channelTitle"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        upload_date: item["snippet"]["publishedAt"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        likes: item["statistics"]["likeCount"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0),
+        views: item["statistics"]["viewCount"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0),
+        duration: item["contentDetails"]["duration"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
+        comment_count: item["statistics"]["commentCount"]
+            .as_str()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0),
+    })
+}
 
 pub struct VideoQueue {
     queue: Arc<Mutex<VecDeque<String>>>,
@@ -68,6 +129,54 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &Vid
         match api.fetch_transcript(&video_id, languages, false).await {
             Ok(transcript) => {
                 let mut captions_to_index: Vec<Caption> = Vec::new();
+                let metadata = fetch_video_metadata(&video_id).await.unwrap_or_else(|e| {
+                    error!("Failed to fetch metadata for video {}: {:?}", video_id, e);
+                    VideoMetadata {
+                        title: String::new(),
+                        channel_name: String::new(),
+                        upload_date: String::new(),
+                        likes: 0,
+                        views: 0,
+                        duration: String::new(),
+                        comment_count: 0,
+                    }
+                });
+                info!(
+                    "Video metadata - Title: {}, Channel: {}, Upload Date: {}, Likes: {}, Views: {}, Duration: {}, Comments: {}",
+                    metadata.title,
+                    metadata.channel_name,
+                    metadata.upload_date,
+                    metadata.likes,
+                    metadata.views,
+                    metadata.duration,
+                    metadata.comment_count
+                );
+
+                // First index video metadata
+                match es_client
+                    .index(IndexParts::IndexId("youtube_videos", &video_id))
+                    .body(json!(metadata))
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        if !response.status_code().is_success() {
+                            error!(
+                                "Failed to index metadata for video ID {}: {:?}",
+                                video_id,
+                                response.text().await
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to send metadata to Elasticsearch for video ID {}: {e:?}",
+                            video_id
+                        );
+                    }
+                }
+
+                // Then index captions
                 for entry in transcript {
                     captions_to_index.push(Caption {
                         video_id: video_id.to_string(),
