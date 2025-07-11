@@ -25,7 +25,7 @@ use rocket_cors::{AllowedOrigins, CorsOptions};
 mod crawler; // We'll define this module for the YouTube crawler
 mod models; // We'll define data models here
 
-use models::{Caption, SearchResult}; // <--- ENSURED THIS IS CORRECT
+use models::{Caption, SearchResult, VideoMetadata}; // <--- ENSURED THIS IS CORRECT
 
 use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_captions;
@@ -118,6 +118,37 @@ async fn process_search_response(response: Value) -> Vec<SearchResult> {
     }
 
     results
+}
+
+#[get("/video/<id>")]
+async fn get_video_metadata(state: &State<AppState>, id: &str) -> Json<Option<VideoMetadata>> {
+    match state
+        .es_client
+        .get(elasticsearch::GetParts::IndexId("youtube_videos", id))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status_code().is_success() {
+                match response.json::<Value>().await {
+                    Ok(json_response) => {
+                        if let Some(source) = json_response.get("_source") {
+                            if let Ok(metadata) = serde_json::from_value(source.clone()) {
+                                return Json(Some(metadata));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to parse Elasticsearch response: {e:?}");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to fetch video metadata: {e:?}");
+        }
+    }
+    Json(None)
 }
 
 #[get("/search?<q>&<page>&<page_size>")]
@@ -274,6 +305,9 @@ async fn rocket() -> _ {
             scheduler: Mutex::new(scheduler),
             video_queue,
         })
-        .mount("/", routes![index, search_captions, queue])
+        .mount(
+            "/",
+            routes![index, search_captions, queue, get_video_metadata],
+        )
         .attach(cors)
 }

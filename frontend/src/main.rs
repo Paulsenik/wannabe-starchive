@@ -1,18 +1,10 @@
+mod models;
+
+use crate::models::{SearchResult, VideoMetadata};
 use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
 use web_sys::MouseEvent;
 use web_sys::{wasm_bindgen, HtmlInputElement};
-use yew::prelude::*; // Import MouseEvent
-
-// Data models for frontend
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SearchResult {
-    pub video_id: String,
-    pub text: String,
-    pub start_time: f64,
-    pub end_time: f64,
-    pub highlighted_text: Option<String>,
-}
+use yew::prelude::*;
 
 // Main App component
 fn format_timestamp(seconds: f64) -> String {
@@ -80,9 +72,40 @@ pub struct SearchResultItemProps {
     pub result: SearchResult,
 }
 
+#[derive(Properties, PartialEq)]
+pub struct VideoResultsProps {
+    pub video_id: String,
+    pub results: Vec<SearchResult>,
+    pub metadata: Option<VideoMetadata>,
+}
+
 #[function_component(VideoResults)]
 fn video_results(props: &VideoResultsProps) -> Html {
     let expanded = use_state(|| false);
+    let video_metadata = use_state(|| None);
+    let error_message = use_state(|| None);
+    let loading = use_state(|| false);
+
+    {
+        let video_id = props.video_id.clone();
+        let video_metadata = video_metadata.clone();
+        let error_message = error_message.clone();
+        let loading = loading.clone();
+        let prev_video_id = use_state(|| String::new());
+
+        use_effect(move || {
+            if *prev_video_id != video_id {
+                prev_video_id.set(video_id.clone());
+                loading.set(true);
+                error_message.set(None);
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    get_video_metadata(video_id, video_metadata, error_message, loading).await;
+                });
+            }
+            || ()
+        });
+    }
 
     html! {
         <div class="bg-gray-100 rounded-lg overflow-hidden">
@@ -93,7 +116,11 @@ fn video_results(props: &VideoResultsProps) -> Html {
                     <a href={format!("https://www.youtube.com/watch?v={}", props.video_id)}
                        target="_blank"
                        class="text-blue-600 hover:underline">
-                        { &props.video_id }
+                        { if let Some(metadata) = &props.metadata {
+                            &metadata.title
+                        } else {
+                            &props.video_id
+                        }}
                     </a>
                 </h3>
                 <span class="text-gray-600">
@@ -103,10 +130,26 @@ fn video_results(props: &VideoResultsProps) -> Html {
             {
                 if *expanded {
                     html! {
-                        <div class="divide-y divide-gray-200">
-                            { for props.results.iter().map(|result| html! {
-                                <SearchResultItem result={result.clone()} />
-                            })}
+                        <div>
+                            { if let Some(metadata) = &*video_metadata {
+                                html! {
+                                    <div class="bg-gray-50 p-4 text-sm">
+                                        <p class="text-gray-600">{"📺 "}<span class="text-gray-900">{&metadata.channel_name}</span></p>
+                                        <p class="text-gray-600">{"📅 "}<span class="text-gray-900">{&metadata.upload_date}</span></p>
+                                        <p class="text-gray-600">{"⏱️ "}<span class="text-gray-900">{&metadata.duration}</span></p>
+                                        <p class="text-gray-600">{"👁️ "}<span class="text-gray-900">{metadata.views}</span></p>
+                                        <p class="text-gray-600">{"👍 "}<span class="text-gray-900">{metadata.likes}</span></p>
+                                        <p class="text-gray-600">{"💬 "}<span class="text-gray-900">{metadata.comment_count}</span></p>
+                                    </div>
+                                }
+                            } else {
+                                html! {}
+                            }}
+                            <div class="divide-y divide-gray-200">
+                                { for props.results.iter().map(|result| html! {
+                                    <SearchResultItem result={result.clone()} />
+                                })}
+                            </div>
                         </div>
                     }
                 } else {
@@ -115,12 +158,6 @@ fn video_results(props: &VideoResultsProps) -> Html {
             }
         </div>
     }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct VideoResultsProps {
-    pub video_id: String,
-    pub results: Vec<SearchResult>,
 }
 
 #[function_component(ResultsList)]
@@ -153,6 +190,7 @@ fn results_list(props: &ResultsListProps) -> Html {
                     <VideoResults
                         video_id={video_id.clone()}
                         results={sorted_results}
+                        metadata={None}
                     />
                 }
             })}
@@ -183,6 +221,46 @@ async fn execute_search(
     let response = perform_search_request(&query).await;
     handle_search_response(response, &search_results, &error_message).await;
     loading.set(false);
+}
+
+async fn get_video_metadata(
+    video_id: String,
+    video_metadata: UseStateHandle<Option<VideoMetadata>>,
+    error_message: UseStateHandle<Option<String>>,
+    loading: UseStateHandle<bool>,
+) {
+    let response = get_raw_video_metadata(&video_id).await;
+
+    match response {
+        Ok(response) => {
+            if response.ok() {
+                match response.json::<Option<VideoMetadata>>().await {
+                    Ok(results) => video_metadata.set(results),
+                    Err(e) => {
+                        handle_error(&error_message, format!("Failed to parse video-id: {e}"))
+                    }
+                }
+            } else {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                handle_error(
+                    &error_message,
+                    format!("Search failed: HTTP {status} - {text}"),
+                );
+            }
+        }
+        Err(e) => handle_error(&error_message, format!("Failed to connect to backend: {e}")),
+    }
+
+    loading.set(false);
+}
+
+async fn get_raw_video_metadata(
+    video_id: &str,
+) -> Result<gloo_net::http::Response, gloo_net::Error> {
+    let backend_url = "http://localhost:8000";
+    let url = format!("{backend_url}/video/{video_id}");
+    Request::get(&url).send().await
 }
 
 async fn perform_search_request(query: &str) -> Result<gloo_net::http::Response, gloo_net::Error> {

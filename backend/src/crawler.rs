@@ -1,3 +1,4 @@
+use crate::models::VideoMetadata;
 use crate::Caption;
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
@@ -13,23 +14,13 @@ use yt_transcript_rs::api::YouTubeTranscriptApi;
 // (e.g., YouTube Data API, a list of channels, or a queue).
 static VIDEO_IDS: &[&str] = &[];
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct VideoMetadata {
-    pub title: String,
-    pub channel_name: String,
-    pub upload_date: String,
-    pub likes: i64,
-    pub views: i64,
-    pub duration: String,
-    pub comment_count: i64,
-}
-
 async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn std::error::Error>> {
     let client = Client::new();
     let api_key = std::env::var("YOUTUBE_API_KEY")?;
+
+    // Documentation: https://developers.google.com/youtube/v3/docs/videos
     let url = format!(
-        "https://www.googleapis.com/youtube/v3/videos?id={}&key={}&part=snippet,statistics,contentDetails",
-        video_id, api_key
+        "https://www.googleapis.com/youtube/v3/videos?id={video_id}&key={api_key}&part=snippet,statistics,contentDetails"
     );
 
     let response = client
