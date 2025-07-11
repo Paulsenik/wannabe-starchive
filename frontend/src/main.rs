@@ -224,6 +224,31 @@ pub fn app() -> Html {
     let search_results = use_state(Vec::<SearchResult>::default);
     let loading = use_state(|| false);
     let error_message = use_state(Option::<String>::default);
+    let init_done = use_state(|| false);
+
+    {
+        let search_query = search_query.clone();
+        let search_results = search_results.clone();
+        let loading = loading.clone();
+        let error_message = error_message.clone();
+        let init_done = init_done.clone();
+
+        use_effect(move || {
+            if !*init_done {
+                if let Some(query) = get_query_param() {
+                    search_query.set(query.clone());
+                    loading.set(true);
+                    error_message.set(None);
+
+                    wasm_bindgen_futures::spawn_local(async move {
+                        execute_search(query, search_results, error_message, loading).await;
+                    });
+                }
+                init_done.set(true);
+            }
+            || ()
+        });
+    }
 
     // Callback for input change
     let on_input = {
@@ -234,7 +259,7 @@ pub fn app() -> Html {
         })
     };
 
-    // Callback for search button click
+    // Callback for the search button click
     let on_search = {
         let search_query = search_query.clone();
         let search_results = search_results.clone();
@@ -299,6 +324,13 @@ pub fn app() -> Html {
             </div>
         </div>
     }
+}
+
+fn get_query_param() -> Option<String> {
+    let window = web_sys::window()?;
+    let search = window.location().search().ok()?;
+    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
+    params.get("q")
 }
 
 // Entry point for the Yew app
