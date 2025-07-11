@@ -10,3 +10,4 @@ out/
 /frontend/target
 *.lock
 /frontend/dist
+/backend/.env
