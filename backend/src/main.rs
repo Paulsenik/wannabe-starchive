@@ -28,7 +28,7 @@ mod models; // We'll define data models here
 use models::{Caption, SearchResult, VideoMetadata}; // <--- ENSURED THIS IS CORRECT
 
 use crate::crawler::VideoQueue;
-use crawler::crawl_youtube_captions;
+use crawler::crawl_youtube_video;
 
 // State struct to hold the Elasticsearch client and other shared resources
 pub struct AppState {
@@ -331,7 +331,7 @@ async fn rocket() -> _ {
             if queue.get_size() == 0 {
                 return;
             }
-            crawl_youtube_captions(&es_client_for_job, &queue).await;
+            crawl_youtube_video(&es_client_for_job, &queue).await;
         })
     })
     .unwrap();

@@ -14,6 +14,50 @@ use yt_transcript_rs::api::YouTubeTranscriptApi;
 // (e.g., YouTube Data API, a list of channels, or a queue).
 static VIDEO_IDS: &[&str] = &[];
 
+pub struct VideoQueue {
+    queue: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl Default for VideoQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VideoQueue {
+    pub fn new() -> Self {
+        let mut queue = VecDeque::new();
+        for &id in VIDEO_IDS {
+            queue.push_back(id.to_string());
+        }
+        VideoQueue {
+            queue: Arc::new(Mutex::new(queue)),
+        }
+    }
+
+    pub fn add_video(&self, video_id: String) {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.push_back(video_id);
+        }
+    }
+
+    pub fn pop_next_video(&self) -> Option<String> {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.pop_front()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_size(&self) -> usize {
+        if let Ok(queue) = self.queue.lock() {
+            queue.len()
+        } else {
+            0
+        }
+    }
+}
+
 async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn std::error::Error>> {
     let client = Client::new();
     let api_key = std::env::var("YOUTUBE_API_KEY")?;
@@ -77,165 +121,135 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .as_str()
             .map(|s| s == "true")
             .unwrap_or(false),
-        last_crawled: chrono::Utc::now().to_rfc3339(),
+        crawl_date: chrono::Utc::now().to_rfc3339(),
     })
 }
 
-pub struct VideoQueue {
-    queue: Arc<Mutex<VecDeque<String>>>,
-}
+pub async fn process_video_metadata(es_client: &Elasticsearch, video_id: &str) {
+    let metadata = fetch_video_metadata(&video_id).await.unwrap_or_else(|e| {
+        error!("Failed to fetch metadata for video {}: {:?}", video_id, e);
+        VideoMetadata {
+            title: String::new(),
+            channel_name: String::new(),
+            channel_id: String::new(),
+            upload_date: String::new(),
+            likes: 0,
+            views: 0,
+            duration: String::new(),
+            comment_count: 0,
+            tags: Vec::new(),
+            has_captions: false,
+            crawl_date: String::new(),
+        }
+    });
 
-impl Default for VideoQueue {
-    fn default() -> Self {
-        Self::new()
+    // First index video metadata
+    match es_client
+        .index(IndexParts::IndexId("youtube_videos", &video_id))
+        .body(json!(metadata))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if !response.status_code().is_success() {
+                error!(
+                    "Failed to index metadata for video ID {}: {:?}",
+                    video_id,
+                    response.text().await
+                );
+            } else {
+                info!(
+                    "Processed YT-Video: {}\nChannel: {} -> {}, Upload Date: {}, Crawl Date: {}\nDuration: {}, Views: {}, Likes: {}, Comments: {} Captions: {},\nTags: {}",
+                    metadata.title,
+                    metadata.channel_name,
+                    metadata.channel_id,
+                    metadata.upload_date,
+                    metadata.crawl_date,
+                    metadata.duration,
+                    metadata.views,
+                    metadata.likes,
+                    metadata.comment_count,
+                    metadata.has_captions,
+                    metadata.tags.join(", "),
+                );
+            }
+        }
+        Err(e) => {
+            error!(
+                "Failed to send metadata to Elasticsearch for video ID {}: {e:?}",
+                video_id
+            );
+        }
     }
 }
 
-impl VideoQueue {
-    pub fn new() -> Self {
-        let mut queue = VecDeque::new();
-        for &id in VIDEO_IDS {
-            queue.push_back(id.to_string());
-        }
-        VideoQueue {
-            queue: Arc::new(Mutex::new(queue)),
-        }
-    }
-
-    pub fn add_video(&self, video_id: String) {
-        if let Ok(mut queue) = self.queue.lock() {
-            queue.push_back(video_id);
-        }
-    }
-
-    pub fn pop_next_video(&self) -> Option<String> {
-        if let Ok(mut queue) = self.queue.lock() {
-            queue.pop_front()
-        } else {
-            None
-        }
-    }
-
-    pub fn get_size(&self) -> usize {
-        if let Ok(queue) = self.queue.lock() {
-            queue.len()
-        } else {
-            0
-        }
-    }
-}
-
-pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &VideoQueue) {
-    info!("Starting YouTube caption crawl...");
+pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
+    let languages = &["en"];
 
     let api =
         YouTubeTranscriptApi::new(None, None, None).expect("Failed to create YouTubeTranscriptApi");
 
-    let languages = &["en"];
+    match api.fetch_transcript(&video_id, languages, false).await {
+        Ok(transcript) => {
+            let mut captions_to_index: Vec<Caption> = Vec::new();
 
-    while let Some(video_id) = video_queue.pop_next_video() {
-        info!("Processing video ID: {video_id}");
-        match api.fetch_transcript(&video_id, languages, false).await {
-            Ok(transcript) => {
-                let mut captions_to_index: Vec<Caption> = Vec::new();
-                let metadata = fetch_video_metadata(&video_id).await.unwrap_or_else(|e| {
-                    error!("Failed to fetch metadata for video {}: {:?}", video_id, e);
-                    VideoMetadata {
-                        title: String::new(),
-                        channel_name: String::new(),
-                        channel_id: String::new(),
-                        upload_date: String::new(),
-                        likes: 0,
-                        views: 0,
-                        duration: String::new(),
-                        comment_count: 0,
-                        tags: Vec::new(),
-                        has_captions: false,
-                        last_crawled: String::new(),
-                    }
+            // Then index captions
+            for entry in transcript {
+                captions_to_index.push(Caption {
+                    video_id: video_id.to_string(),
+                    text: entry.text,
+                    start_time: entry.start,
+                    end_time: entry.start + entry.duration,
                 });
-                info!(
-                    "Video metadata - Title: {}, Channel: {}, Upload Date: {}, Likes: {}, Views: {}, Duration: {}, Comments: {}",
-                    metadata.title,
-                    metadata.channel_name,
-                    metadata.upload_date,
-                    metadata.likes,
-                    metadata.views,
-                    metadata.duration,
-                    metadata.comment_count
-                );
+            }
+            info!(
+                "Fetched {} captions for video ID: {video_id}",
+                captions_to_index.len()
+            );
 
-                // First index video metadata
+            // Index captions into Elasticsearch
+            for caption in captions_to_index {
+                let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
                 match es_client
-                    .index(IndexParts::IndexId("youtube_videos", &video_id))
-                    .body(json!(metadata))
+                    .index(IndexParts::IndexId("youtube_captions", &doc_id))
+                    .body(json!(caption))
                     .send()
                     .await
                 {
                     Ok(response) => {
-                        if !response.status_code().is_success() {
+                        if response.status_code().is_success() {
+                            // info!("Indexed caption for video ID: {}", caption.video_id);
+                        } else {
                             error!(
-                                "Failed to index metadata for video ID {}: {:?}",
-                                video_id,
+                                "Failed to index caption for video ID {}: {:?}",
+                                caption.video_id,
                                 response.text().await
                             );
                         }
                     }
                     Err(e) => {
                         error!(
-                            "Failed to send metadata to Elasticsearch for video ID {}: {e:?}",
-                            video_id
+                            "Failed to send caption to Elasticsearch for video ID {}: {e:?}",
+                            caption.video_id
                         );
                     }
                 }
-
-                // Then index captions
-                for entry in transcript {
-                    captions_to_index.push(Caption {
-                        video_id: video_id.to_string(),
-                        text: entry.text,
-                        start_time: entry.start,
-                        end_time: entry.start + entry.duration,
-                    });
-                }
-                info!(
-                    "Fetched {} captions for video ID: {video_id}",
-                    captions_to_index.len()
-                );
-
-                // Index captions into Elasticsearch
-                for caption in captions_to_index {
-                    let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
-                    match es_client
-                        .index(IndexParts::IndexId("youtube_captions", &doc_id))
-                        .body(json!(caption))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.status_code().is_success() {
-                                // info!("Indexed caption for video ID: {}", caption.video_id);
-                            } else {
-                                error!(
-                                    "Failed to index caption for video ID {}: {:?}",
-                                    caption.video_id,
-                                    response.text().await
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to send caption to Elasticsearch for video ID {}: {e:?}",
-                                caption.video_id
-                            );
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to fetch transcript for video ID {video_id}: {e:?}");
             }
         }
+        Err(e) => {
+            error!("Failed to fetch transcript for video ID {video_id}: {e:?}");
+        }
+    }
+}
+
+pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQueue) {
+    info!("Starting YouTube caption crawl...");
+
+    while let Some(video_id) = video_queue.pop_next_video() {
+        info!("Processing video ID: {video_id}");
+
+        process_video_metadata(es_client, &video_id).await;
+        process_video_captions(es_client, &video_id).await;
     }
     info!("YouTube caption crawl completed.");
 }
