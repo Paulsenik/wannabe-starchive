@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct VideoMetadata {
     pub title: String,
+    pub channel_id: String,
     pub channel_name: String,
     pub upload_date: String,
     pub likes: i64,

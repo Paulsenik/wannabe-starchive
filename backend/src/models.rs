@@ -21,6 +21,7 @@ pub struct SearchResult {
 pub struct VideoMetadata {
     pub title: String,
     pub channel_name: String,
+    pub channel_id: String,
     pub upload_date: String,
     pub likes: i64,
     pub views: i64,

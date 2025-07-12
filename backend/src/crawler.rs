@@ -33,6 +33,10 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
 
     Ok(VideoMetadata {
         title: item["snippet"]["title"].as_str().unwrap_or("").to_string(),
+        channel_id: item["snippet"]["channelId"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
         channel_name: item["snippet"]["channelTitle"]
             .as_str()
             .unwrap_or("")
@@ -125,6 +129,7 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &Vid
                     VideoMetadata {
                         title: String::new(),
                         channel_name: String::new(),
+                        channel_id: String::new(),
                         upload_date: String::new(),
                         likes: 0,
                         views: 0,

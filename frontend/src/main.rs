@@ -6,11 +6,40 @@ use web_sys::MouseEvent;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
 
+fn format_date(iso_date: &str) -> String {
+    if let Ok(datetime) = iso_date.parse::<chrono::DateTime<chrono::Utc>>() {
+        datetime.format("%Y-%m-%d").to_string()
+    } else {
+        iso_date.to_string()
+    }
+}
+
 // Main App component
 fn format_timestamp(seconds: f64) -> String {
     let minutes = (seconds as u32) / 60;
     let remaining_seconds = (seconds as u32) % 60;
     format!("{:02}:{:02}", minutes, remaining_seconds)
+}
+
+fn parse_iso8601_duration(duration: &str) -> String {
+    let hours = duration
+        .find('H')
+        .map_or(0, |h| duration[2..h].parse::<u32>().unwrap_or(0));
+    let minutes = duration.find('M').map_or(0, |m| {
+        let start = duration.find('H').map_or(2, |h| h + 1);
+        duration[start..m].parse::<u32>().unwrap_or(0)
+    });
+    let seconds = duration.find('S').map_or(0, |s| {
+        let start = duration
+            .find('M')
+            .map_or_else(|| duration.find('H').map_or(2, |h| h + 1), |m| m + 1);
+        duration[start..s].parse::<u32>().unwrap_or(0)
+    });
+    if (hours != 0) {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
 
 #[function_component(SearchBar)]
@@ -76,7 +105,6 @@ pub struct SearchResultItemProps {
 pub struct VideoResultsProps {
     pub video_id: String,
     pub results: Vec<SearchResult>,
-    pub metadata: Option<VideoMetadata>,
 }
 
 #[function_component(VideoResults)]
@@ -112,11 +140,10 @@ fn video_results(props: &VideoResultsProps) -> Html {
             <div class="bg-gray-200 p-4 flex justify-between items-center cursor-pointer"
                  onclick={let expanded = expanded.clone(); move |_| expanded.set(!*expanded)}>
                 <h3 class="text-lg font-semibold text-gray-800">
-                    {"Video: "}
                     <a href={format!("https://www.youtube.com/watch?v={}", props.video_id)}
                        target="_blank"
                        class="text-blue-600 hover:underline">
-                        { if let Some(metadata) = &props.metadata {
+                        { if let Some(metadata) = &*video_metadata {
                             &metadata.title
                         } else {
                             &props.video_id
@@ -133,13 +160,13 @@ fn video_results(props: &VideoResultsProps) -> Html {
                         <div>
                             { if let Some(metadata) = &*video_metadata {
                                 html! {
-                                    <div class="bg-gray-50 p-4 text-sm">
-                                        <p class="text-gray-600">{"📺 "}<span class="text-gray-900">{&metadata.channel_name}</span></p>
-                                        <p class="text-gray-600">{"📅 "}<span class="text-gray-900">{&metadata.upload_date}</span></p>
-                                        <p class="text-gray-600">{"⏱️ "}<span class="text-gray-900">{&metadata.duration}</span></p>
-                                        <p class="text-gray-600">{"👁️ "}<span class="text-gray-900">{metadata.views}</span></p>
-                                        <p class="text-gray-600">{"👍 "}<span class="text-gray-900">{metadata.likes}</span></p>
-                                        <p class="text-gray-600">{"💬 "}<span class="text-gray-900">{metadata.comment_count}</span></p>
+                                    <div class="bg-gray-50 p-4 text-sm flex flex-wrap gap-4">
+                                        <p class="flex items-center">{"📺 "}<a href={format!("https://www.youtube.com/channel/{}",&metadata.channel_id)} class="text-blue-600 hover:underline">{&metadata.channel_name}</a></p>
+                                        <p class="flex items-center">{"📅 "}<span>{format_date(&metadata.upload_date)}</span></p>
+                                        <p class="flex items-center">{"⏱️ "}<span>{parse_iso8601_duration(&metadata.duration)}</span></p>
+                                        <p class="flex items-center">{"👁️ "}<span>{metadata.views}</span></p>
+                                        <p class="flex items-center">{"👍 "}<span>{metadata.likes}</span></p>
+                                        <p class="flex items-center">{"💬 "}<span>{metadata.comment_count}</span></p>
                                     </div>
                                 }
                             } else {
@@ -190,7 +217,6 @@ fn results_list(props: &ResultsListProps) -> Html {
                     <VideoResults
                         video_id={video_id.clone()}
                         results={sorted_results}
-                        metadata={None}
                     />
                 }
             })}
