@@ -58,19 +58,62 @@ fn format_iso8601_duration(duration: &str) -> String {
 
 #[function_component(SearchBar)]
 fn search_bar(props: &SearchBarProps) -> Html {
+    let local_input = use_state(|| props.query.clone());
+    let initialized = use_state(|| false);
+
+    // Only update local state on initial load, not on every external query change
+    {
+        let local_input = local_input.clone();
+        let query = props.query.clone();
+        let initialized = initialized.clone();
+        use_effect(move || {
+            if !*initialized {
+                local_input.set(query);
+                initialized.set(true);
+            }
+            || ()
+        });
+    }
+
+    let on_input = {
+        let local_input = local_input.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: HtmlInputElement = e.target_unchecked_into();
+            local_input.set(input.value());
+        })
+    };
+
+    let on_search_click = {
+        let local_input = local_input.clone();
+        let on_search = props.on_search.clone();
+        Callback::from(move |_e: MouseEvent| {
+            on_search.emit((*local_input).clone());
+        })
+    };
+
+    let on_keydown = {
+        let local_input = local_input.clone();
+        let on_search = props.on_search.clone();
+        Callback::from(move |e: KeyboardEvent| {
+            if e.key() == "Enter" {
+                on_search.emit((*local_input).clone());
+            }
+        })
+    };
+
     html! {
         <div class="flex flex-col sm:flex-row gap-4 mb-6">
             <input
                 type="text"
                 class="flex-grow p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter search query..."
-                value={props.query.clone()}
-                oninput={props.on_input.clone()}
-                onkeydown={props.on_enter.clone()}
+                value={(*local_input).clone()}
+                oninput={on_input}
+                onkeydown={on_keydown}
             />
             <button
                 class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 ease-in-out"
-                onclick={props.on_search.clone()}
+                onclick={on_search_click}
                 disabled={props.loading}
             >
                 { if props.loading { "Searching..." } else { "Search" } }
@@ -83,9 +126,7 @@ fn search_bar(props: &SearchBarProps) -> Html {
 pub struct SearchBarProps {
     pub query: String,
     pub loading: bool,
-    pub on_input: Callback<InputEvent>,
-    pub on_search: Callback<MouseEvent>,
-    pub on_enter: Callback<KeyboardEvent>,
+    pub on_search: Callback<String>,
 }
 
 #[function_component(SearchResultItem)]
@@ -374,32 +415,22 @@ pub fn app() -> Html {
         });
     }
 
-    // Callback for input change
-    let on_input = {
-        let search_query = search_query.clone();
-        Callback::from(move |e: InputEvent| {
-            let input: HtmlInputElement = e.target_unchecked_into();
-            search_query.set(input.value());
-        })
-    };
-
-    // Callback for the search button click
+    // Callback for the search execution
     let on_search = {
         let search_query = search_query.clone();
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error_message = error_message.clone();
 
-        // Change the callback to accept a MouseEvent, as required by onclick
-        Callback::from(move |_e: MouseEvent| {
-            // Added _e: MouseEvent
-            let query = (*search_query).clone();
+        Callback::from(move |query: String| {
             let search_results = search_results.clone();
             let loading = loading.clone();
             let error_message = error_message.clone();
 
+            // Update the main search query state only when actually searching
+            search_query.set(query.clone());
             loading.set(true);
-            error_message.set(None); // Clear previous errors
+            error_message.set(None);
 
             wasm_bindgen_futures::spawn_local(async move {
                 execute_search(query, search_results, error_message, loading).await;
@@ -417,16 +448,7 @@ pub fn app() -> Html {
                 <SearchBar
                     query={(*search_query).clone()}
                     loading={*loading}
-                    on_input={on_input}
-                    on_search={on_search.clone()}
-                    on_enter={
-                        let on_search_clone = on_search.clone();
-                        Callback::from(move |e: KeyboardEvent| {
-                            if e.key() == "Enter" {
-                                on_search_clone.emit(MouseEvent::new("click").unwrap());
-                            }
-                        })
-                    }
+                    on_search={on_search}
                 />
 
                 {
