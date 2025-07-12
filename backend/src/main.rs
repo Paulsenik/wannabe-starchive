@@ -205,6 +205,60 @@ async fn search_captions(
     }
 }
 
+#[get("/video")]
+async fn list_videos(state: &State<AppState>) -> Json<Vec<String>> {
+    let search_body = json!({
+        "size": 10000,
+        "query": {
+            "match_all": {}
+        },
+        "_source": false
+    });
+
+    match state
+        .es_client
+        .search(SearchParts::Index(&["youtube_videos"]))
+        .body(search_body)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status_code().is_success() {
+                match response.json::<Value>().await {
+                    Ok(json_response) => {
+                        let mut video_ids = Vec::new();
+
+                        if let Some(hits) = json_response["hits"]["hits"].as_array() {
+                            for hit in hits {
+                                if let Some(id) = hit["_id"].as_str() {
+                                    video_ids.push(id.to_string());
+                                }
+                            }
+                        }
+
+                        info!("Found {} registered videos.", video_ids.len());
+                        Json(video_ids)
+                    }
+                    Err(e) => {
+                        error!("Failed to parse Elasticsearch response: {e:?}");
+                        Json(vec![])
+                    }
+                }
+            } else {
+                error!(
+                    "Elasticsearch search failed with status: {}",
+                    response.status_code()
+                );
+                Json(vec![])
+            }
+        }
+        Err(e) => {
+            error!("Failed to connect to Elasticsearch for video listing: {e:?}");
+            Json(vec![])
+        }
+    }
+}
+
 // --- Rocket Launch ---
 
 async fn create_es_index(es_client: &Elasticsearch) {
@@ -307,7 +361,13 @@ async fn rocket() -> _ {
         })
         .mount(
             "/",
-            routes![index, search_captions, queue, get_video_metadata],
+            routes![
+                index,
+                search_captions,
+                queue,
+                get_video_metadata,
+                list_videos
+            ],
         )
         .attach(cors)
 }
