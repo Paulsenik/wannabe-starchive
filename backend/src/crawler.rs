@@ -64,6 +64,20 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .unwrap_or("0")
             .parse()
             .unwrap_or(0),
+        tags: item["snippet"]["tags"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        has_captions: item["contentDetails"]["caption"]
+            .as_str()
+            .map(|s| s == "true")
+            .unwrap_or(false),
+        last_crawled: chrono::Utc::now().to_rfc3339(),
     })
 }
 
@@ -135,6 +149,9 @@ pub async fn crawl_youtube_captions(es_client: &Elasticsearch, video_queue: &Vid
                         views: 0,
                         duration: String::new(),
                         comment_count: 0,
+                        tags: Vec::new(),
+                        has_captions: false,
+                        last_crawled: String::new(),
                     }
                 });
                 info!(

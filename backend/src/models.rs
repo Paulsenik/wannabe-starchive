@@ -27,4 +27,7 @@ pub struct VideoMetadata {
     pub views: i64,
     pub duration: String,
     pub comment_count: i64,
+    pub tags: Vec<String>,
+    pub last_crawled: String,
+    pub has_captions: bool,
 }

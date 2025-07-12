@@ -17,3 +17,4 @@ tokio-cron-scheduler = "0.9" # For scheduling the crawler
 url = "2.5"
 tokio = "1.46.1" # For URL parsing
 rocket_cors = { version = "0.6.0", default-features = false }
+chrono = "0.4.41"
