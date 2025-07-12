@@ -6,7 +6,7 @@ use web_sys::MouseEvent;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
 
-fn format_date(iso_date: &str) -> String {
+fn format_iso8601_date(iso_date: &str) -> String {
     if let Ok(datetime) = iso_date.parse::<chrono::DateTime<chrono::Utc>>() {
         datetime.format("%Y-%m-%d").to_string()
     } else {
@@ -14,14 +14,28 @@ fn format_date(iso_date: &str) -> String {
     }
 }
 
-// Main App component
+// Formats each x1000 step
+fn format_number(number: i64) -> String {
+    let num_str = number.to_string();
+    let mut result = String::new();
+    let len = num_str.len();
+
+    for (i, c) in num_str.chars().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
+}
+
 fn format_timestamp(seconds: f64) -> String {
     let minutes = (seconds as u32) / 60;
     let remaining_seconds = (seconds as u32) % 60;
     format!("{:02}:{:02}", minutes, remaining_seconds)
 }
 
-fn parse_iso8601_duration(duration: &str) -> String {
+fn format_iso8601_duration(duration: &str) -> String {
     let hours = duration
         .find('H')
         .map_or(0, |h| duration[2..h].parse::<u32>().unwrap_or(0));
@@ -35,7 +49,7 @@ fn parse_iso8601_duration(duration: &str) -> String {
             .map_or_else(|| duration.find('H').map_or(2, |h| h + 1), |m| m + 1);
         duration[start..s].parse::<u32>().unwrap_or(0)
     });
-    if (hours != 0) {
+    if hours != 0 {
         format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
     } else {
         format!("{:02}:{:02}", minutes, seconds)
@@ -162,11 +176,11 @@ fn video_results(props: &VideoResultsProps) -> Html {
                                 html! {
                                     <div class="bg-gray-50 p-4 text-sm flex flex-wrap gap-4">
                                         <p class="flex items-center">{"📺 "}<a href={format!("https://www.youtube.com/channel/{}",&metadata.channel_id)} class="text-blue-600 hover:underline">{&metadata.channel_name}</a></p>
-                                        <p class="flex items-center">{"📅 "}<span>{format_date(&metadata.upload_date)}</span></p>
-                                        <p class="flex items-center">{"⏱️ "}<span>{parse_iso8601_duration(&metadata.duration)}</span></p>
-                                        <p class="flex items-center">{"👁️ "}<span>{metadata.views}</span></p>
-                                        <p class="flex items-center">{"👍 "}<span>{metadata.likes}</span></p>
-                                        <p class="flex items-center">{"💬 "}<span>{metadata.comment_count}</span></p>
+                                        <p class="flex items-center">{"📅 "}<span>{format_iso8601_date(&metadata.upload_date)}</span></p>
+                                        <p class="flex items-center">{"⏱️ "}<span>{format_iso8601_duration(&metadata.duration)}</span></p>
+                                        <p class="flex items-center">{"👁️ "}<span>{format_number(metadata.views)}</span></p>
+                                        <p class="flex items-center">{"👍 "}<span>{format_number(metadata.likes)}</span></p>
+                                        <p class="flex items-center">{"💬 "}<span>{format_number(metadata.comment_count)}</span></p>
                                     </div>
                                 }
                             } else {
