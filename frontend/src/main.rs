@@ -2,7 +2,7 @@ mod models;
 
 use crate::models::{SearchResult, VideoMetadata};
 use gloo_net::http::Request;
-use web_sys::MouseEvent;
+use web_sys::console;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
 
@@ -57,68 +57,46 @@ fn format_iso8601_duration(duration: &str) -> String {
 }
 
 #[function_component(SearchBar)]
-fn search_bar(props: &SearchBarProps) -> Html {
-    let local_input = use_state(|| props.query.clone());
-    let initialized = use_state(|| false);
+pub fn search_bar(props: &SearchBarProps) -> Html {
+    let current_input = use_state(|| props.query.clone());
 
-    // Only update local state on initial load, not on every external query change
-    {
-        let local_input = local_input.clone();
-        let query = props.query.clone();
-        let initialized = initialized.clone();
-        use_effect(move || {
-            if !*initialized {
-                local_input.set(query);
-                initialized.set(true);
-            }
-            || ()
-        });
-    }
-
+    // This Callback handles when the user types into the input field.
     let on_input = {
-        let local_input = local_input.clone();
+        let current_input = current_input.clone();
         Callback::from(move |e: InputEvent| {
-            let input: HtmlInputElement = e.target_unchecked_into();
-            local_input.set(input.value());
+            let input_value = e.target_unchecked_into::<HtmlInputElement>().value();
+            current_input.set(input_value);
         })
     };
 
-    let on_search_click = {
-        let local_input = local_input.clone();
+    // This Callback handles form submission.
+    let on_submit = {
         let on_search = props.on_search.clone();
-        Callback::from(move |_e: MouseEvent| {
-            on_search.emit((*local_input).clone());
-        })
-    };
-
-    let on_keydown = {
-        let local_input = local_input.clone();
-        let on_search = props.on_search.clone();
-        Callback::from(move |e: KeyboardEvent| {
-            if e.key() == "Enter" {
-                on_search.emit((*local_input).clone());
-            }
+        let current_input = current_input.clone();
+        Callback::from(move |e: web_sys::SubmitEvent| {
+            e.prevent_default(); // Prevent default form submission (page reload)
+            on_search.emit((*current_input).clone()); // Emit the current value to the parent
         })
     };
 
     html! {
-        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+        <form onsubmit={on_submit} class="flex mb-4">
             <input
                 type="text"
-                class="flex-grow p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter search query..."
-                value={(*local_input).clone()}
-                oninput={on_input}
-                onkeydown={on_keydown}
+                class="flex-grow p-3 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter YouTube caption search query..."
+                value={(*current_input).clone()} // Bind the input's value to our internal state
+                oninput={on_input} // Update internal state on user input
+                disabled={props.loading}
             />
             <button
-                class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-md shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 ease-in-out"
-                onclick={on_search_click}
+                type="submit"
+                class="bg-blue-600 text-white p-3 rounded-r-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 disabled={props.loading}
             >
                 { if props.loading { "Searching..." } else { "Search" } }
             </button>
-        </div>
+        </form>
     }
 }
 
@@ -476,6 +454,10 @@ fn get_query_param() -> Option<String> {
     let window = web_sys::window()?;
     let search = window.location().search().ok()?;
     let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
+    match &params.get("q") {
+        Some(val) => console::log_1(&format!("query-param: {}", val).into()),
+        None => console::log_1(&"query-param: Not found".into()),
+    }
     params.get("q")
 }
 
