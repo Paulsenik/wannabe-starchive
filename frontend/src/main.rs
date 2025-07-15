@@ -56,6 +56,139 @@ fn format_iso8601_duration(duration: &str) -> String {
     }
 }
 
+async fn execute_search(
+    query: String,
+    search_results: UseStateHandle<Vec<SearchResult>>,
+    error_message: UseStateHandle<Option<String>>,
+    loading: UseStateHandle<bool>,
+) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(history) = window.history() {
+            let url = format!("?q={}", query);
+            let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
+        }
+    }
+    let response = perform_search_request(&query).await;
+    handle_search_response(response, &search_results, &error_message).await;
+    loading.set(false);
+}
+
+async fn get_video_metadata(
+    video_id: String,
+    video_metadata: UseStateHandle<Option<VideoMetadata>>,
+    error_message: UseStateHandle<Option<String>>,
+    loading: UseStateHandle<bool>,
+) {
+    let response = get_raw_video_metadata(&video_id).await;
+
+    match response {
+        Ok(response) => {
+            if response.ok() {
+                match response.json::<Option<VideoMetadata>>().await {
+                    Ok(results) => video_metadata.set(results),
+                    Err(e) => {
+                        handle_error(&error_message, format!("Failed to parse video-id: {e}"))
+                    }
+                }
+            } else {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                handle_error(
+                    &error_message,
+                    format!("Search failed: HTTP {status} - {text}"),
+                );
+            }
+        }
+        Err(e) => handle_error(&error_message, format!("Failed to connect to backend: {e}")),
+    }
+
+    loading.set(false);
+}
+
+async fn get_raw_video_metadata(
+    video_id: &str,
+) -> Result<gloo_net::http::Response, gloo_net::Error> {
+    let backend_url = "http://localhost:8000";
+    let url = format!("{backend_url}/video/{video_id}");
+    Request::get(&url).send().await
+}
+
+async fn perform_search_request(query: &str) -> Result<gloo_net::http::Response, gloo_net::Error> {
+    let backend_url = "http://localhost:8000";
+    let url = format!("{backend_url}/search?q={query}");
+    Request::get(&url).send().await
+}
+
+fn handle_error(error_message: &UseStateHandle<Option<String>>, error: String) {
+    error_message.set(Some(error.clone()));
+    web_sys::console::error_1(&error.into());
+}
+
+fn get_query_param() -> Option<String> {
+    let window = web_sys::window()?;
+    let search = window.location().search().ok()?;
+    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
+    match &params.get("q") {
+        Some(val) => console::log_1(&format!("query-param: {}", val).into()),
+        None => console::log_1(&"query-param: Not found".into()),
+    }
+    params.get("q")
+}
+
+async fn handle_search_response(
+    response: Result<gloo_net::http::Response, gloo_net::Error>,
+    search_results: &UseStateHandle<Vec<SearchResult>>,
+    error_message: &UseStateHandle<Option<String>>,
+) {
+    match response {
+        Ok(response) => {
+            if response.ok() {
+                match response.json::<Vec<SearchResult>>().await {
+                    Ok(results) => search_results.set(results),
+                    Err(e) => handle_error(
+                        error_message,
+                        format!("Failed to parse search results: {e}"),
+                    ),
+                }
+            } else {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                handle_error(
+                    error_message,
+                    format!("Search failed: HTTP {status} - {text}"),
+                );
+            }
+        }
+        Err(e) => handle_error(error_message, format!("Failed to connect to backend: {e}")),
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct SearchBarProps {
+    pub query: String,
+    pub loading: bool,
+    pub on_search: Callback<String>,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct SearchResultItemProps {
+    pub result: SearchResult,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct VideoResultsProps {
+    pub video_id: String,
+    pub results: Vec<SearchResult>,
+}
+
+#[derive(Properties, PartialEq)]
+pub struct ResultsListProps {
+    pub results: Vec<SearchResult>,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub query: String,
+}
+
 #[function_component(SearchBar)]
 pub fn search_bar(props: &SearchBarProps) -> Html {
     let current_input = use_state(|| props.query.clone());
@@ -100,13 +233,6 @@ pub fn search_bar(props: &SearchBarProps) -> Html {
     }
 }
 
-#[derive(Properties, PartialEq)]
-pub struct SearchBarProps {
-    pub query: String,
-    pub loading: bool,
-    pub on_search: Callback<String>,
-}
-
 #[function_component(SearchResultItem)]
 fn search_result_item(props: &SearchResultItemProps) -> Html {
     html! {
@@ -127,17 +253,6 @@ fn search_result_item(props: &SearchResultItemProps) -> Html {
             </p>
         </div>
     }
-}
-
-#[derive(Properties, PartialEq)]
-pub struct SearchResultItemProps {
-    pub result: SearchResult,
-}
-
-#[derive(Properties, PartialEq)]
-pub struct VideoResultsProps {
-    pub video_id: String,
-    pub results: Vec<SearchResult>,
 }
 
 #[function_component(VideoResults)]
@@ -257,113 +372,9 @@ fn results_list(props: &ResultsListProps) -> Html {
     }
 }
 
-#[derive(Properties, PartialEq)]
-pub struct ResultsListProps {
-    pub results: Vec<SearchResult>,
-    pub loading: bool,
-    pub error: Option<String>,
-    pub query: String,
-}
-
-async fn execute_search(
-    query: String,
-    search_results: UseStateHandle<Vec<SearchResult>>,
-    error_message: UseStateHandle<Option<String>>,
-    loading: UseStateHandle<bool>,
-) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(history) = window.history() {
-            let url = format!("?q={}", query);
-            let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
-        }
-    }
-    let response = perform_search_request(&query).await;
-    handle_search_response(response, &search_results, &error_message).await;
-    loading.set(false);
-}
-
-async fn get_video_metadata(
-    video_id: String,
-    video_metadata: UseStateHandle<Option<VideoMetadata>>,
-    error_message: UseStateHandle<Option<String>>,
-    loading: UseStateHandle<bool>,
-) {
-    let response = get_raw_video_metadata(&video_id).await;
-
-    match response {
-        Ok(response) => {
-            if response.ok() {
-                match response.json::<Option<VideoMetadata>>().await {
-                    Ok(results) => video_metadata.set(results),
-                    Err(e) => {
-                        handle_error(&error_message, format!("Failed to parse video-id: {e}"))
-                    }
-                }
-            } else {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                handle_error(
-                    &error_message,
-                    format!("Search failed: HTTP {status} - {text}"),
-                );
-            }
-        }
-        Err(e) => handle_error(&error_message, format!("Failed to connect to backend: {e}")),
-    }
-
-    loading.set(false);
-}
-
-async fn get_raw_video_metadata(
-    video_id: &str,
-) -> Result<gloo_net::http::Response, gloo_net::Error> {
-    let backend_url = "http://localhost:8000";
-    let url = format!("{backend_url}/video/{video_id}");
-    Request::get(&url).send().await
-}
-
-async fn perform_search_request(query: &str) -> Result<gloo_net::http::Response, gloo_net::Error> {
-    let backend_url = "http://localhost:8000";
-    let url = format!("{backend_url}/search?q={query}");
-    Request::get(&url).send().await
-}
-
-async fn handle_search_response(
-    response: Result<gloo_net::http::Response, gloo_net::Error>,
-    search_results: &UseStateHandle<Vec<SearchResult>>,
-    error_message: &UseStateHandle<Option<String>>,
-) {
-    match response {
-        Ok(response) => {
-            if response.ok() {
-                match response.json::<Vec<SearchResult>>().await {
-                    Ok(results) => search_results.set(results),
-                    Err(e) => handle_error(
-                        error_message,
-                        format!("Failed to parse search results: {e}"),
-                    ),
-                }
-            } else {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                handle_error(
-                    error_message,
-                    format!("Search failed: HTTP {status} - {text}"),
-                );
-            }
-        }
-        Err(e) => handle_error(error_message, format!("Failed to connect to backend: {e}")),
-    }
-}
-
-fn handle_error(error_message: &UseStateHandle<Option<String>>, error: String) {
-    error_message.set(Some(error.clone()));
-    web_sys::console::error_1(&error.into());
-}
-
 #[function_component(App)]
 pub fn app() -> Html {
-    let search_query = use_state(String::default);
+    let search_query = use_state(|| get_query_param().unwrap_or_default());
     let search_results = use_state(Vec::<SearchResult>::default);
     let loading = use_state(|| false);
     let error_message = use_state(Option::<String>::default);
@@ -448,17 +459,6 @@ pub fn app() -> Html {
             </div>
         </div>
     }
-}
-
-fn get_query_param() -> Option<String> {
-    let window = web_sys::window()?;
-    let search = window.location().search().ok()?;
-    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
-    match &params.get("q") {
-        Some(val) => console::log_1(&format!("query-param: {}", val).into()),
-        None => console::log_1(&"query-param: Not found".into()),
-    }
-    params.get("q")
 }
 
 // Entry point for the Yew app
