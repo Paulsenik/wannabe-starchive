@@ -1,0 +1,130 @@
+use yew::prelude::*;
+use yew_router::prelude::*;
+
+use crate::admin::AdminPage;
+use crate::{execute_search, get_query_param, ResultsList, SearchBar, SearchResult};
+
+#[derive(Clone, Routable, PartialEq)]
+pub enum Route {
+    #[at("/")]
+    Home,
+    #[at("/admin")]
+    Admin,
+    #[not_found]
+    #[at("/404")]
+    NotFound,
+}
+
+pub fn switch(routes: Route) -> Html {
+    match routes {
+        Route::Home => html! { <SearchApp /> },
+        Route::Admin => html! { <AdminPage /> },
+        Route::NotFound => html! {
+            <div class="min-h-screen flex items-center justify-center bg-gray-700">
+                <div class="bg-white p-8 rounded-lg shadow-lg text-center">
+                    <h1 class="text-2xl font-bold text-gray-800 mb-4">{"404 - Page Not Found"}</h1>
+                    <Link<Route> to={Route::Home} classes="text-blue-600 hover:underline">
+                        {"Go back to search"}
+                    </Link<Route>>
+                </div>
+            </div>
+        },
+    }
+}
+
+// Move your existing App component to SearchApp
+#[function_component(SearchApp)]
+pub fn search_app() -> Html {
+    let search_query = use_state(|| get_query_param().unwrap_or_default());
+    let search_results = use_state(Vec::<SearchResult>::default);
+    let loading = use_state(|| false);
+    let error_message = use_state(Option::<String>::default);
+    let init_done = use_state(|| false);
+
+    {
+        let search_query = search_query.clone();
+        let search_results = search_results.clone();
+        let loading = loading.clone();
+        let error_message = error_message.clone();
+        let init_done = init_done.clone();
+
+        use_effect(move || {
+            if !*init_done {
+                if let Some(query) = get_query_param() {
+                    search_query.set(query.clone());
+                    loading.set(true);
+                    error_message.set(None);
+
+                    wasm_bindgen_futures::spawn_local(async move {
+                        execute_search(query, search_results, error_message, loading).await;
+                    });
+                }
+                init_done.set(true);
+            }
+            || ()
+        });
+    }
+
+    // Callback for the search execution
+    let on_search = {
+        let search_query = search_query.clone();
+        let search_results = search_results.clone();
+        let loading = loading.clone();
+        let error_message = error_message.clone();
+
+        Callback::from(move |query: String| {
+            let search_results = search_results.clone();
+            let loading = loading.clone();
+            let error_message = error_message.clone();
+
+            // Update the main search query state only when actually searching
+            search_query.set(query.clone());
+            loading.set(true);
+            error_message.set(None);
+
+            wasm_bindgen_futures::spawn_local(async move {
+                execute_search(query, search_results, error_message, loading).await;
+            });
+        })
+    };
+
+    html! {
+        <div class="min-h-screen flex flex-col items-center justify-center bg-gray-700 p-4">
+            <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-2xl">
+                <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
+                    {"YouTube Caption Search"}
+                </h1>
+
+                // Add admin link
+                <div class="text-center mb-4">
+                    <Link<Route> to={Route::Admin} classes="text-blue-600 hover:underline text-sm">
+                        {"Admin Panel"}
+                    </Link<Route>>
+                </div>
+
+                <SearchBar
+                    query={(*search_query).clone()}
+                    loading={*loading}
+                    on_search={on_search}
+                />
+
+                {
+                    if let Some(msg) = &*error_message {
+                        html! {
+                            <p class="text-red-600 text-center mb-4">{ format!("Error: {msg}") }</p>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
+
+                <ResultsList
+                    results={(*search_results).clone()}
+                    loading={*loading}
+                    error={(*error_message).clone()}
+                    query={(*search_query).clone()}
+                />
+            </div>
+        </div>
+    }
+}

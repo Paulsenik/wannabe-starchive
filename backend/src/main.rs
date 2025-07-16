@@ -14,19 +14,23 @@ use env_logger::Builder;
 use log::{error, info, LevelFilter};
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::{get, launch, post, routes, State};
+// Explicitly import CorsOptions and AllowedOrigins from rocket_cors
+use rocket_cors::{AllowedOrigins, CorsOptions};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-// Explicitly import CorsOptions and AllowedOrigins from rocket_cors
-use rocket_cors::{AllowedOrigins, CorsOptions};
 
+mod admin;
 mod crawler; // We'll define this module for the YouTube crawler
-mod models; // We'll define data models here
+mod models;
+// We'll define data models here
 
-use models::{Caption, SearchResult, VideoMetadata}; // <--- ENSURED THIS IS CORRECT
+use models::{Caption, SearchResult, VideoMetadata};
+// <--- ENSURED THIS IS CORRECT
 
+use crate::admin::admin_login;
 use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_video;
 
@@ -366,7 +370,10 @@ async fn rocket() -> _ {
                 search_captions,
                 queue,
                 get_video_metadata,
-                list_videos
+                list_videos,
+                admin::admin_login,
+                admin::admin_stats,
+                admin::trigger_crawl
             ],
         )
         .attach(cors)

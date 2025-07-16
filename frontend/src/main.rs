@@ -1,10 +1,14 @@
+mod admin;
 mod models;
+mod router;
 
 use crate::models::{SearchResult, VideoMetadata};
+use crate::router::{switch, Route};
 use gloo_net::http::Request;
 use web_sys::console;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
+use yew_router::prelude::*;
 
 fn format_iso8601_date(iso_date: &str) -> String {
     if let Ok(datetime) = iso_date.parse::<chrono::DateTime<chrono::Utc>>() {
@@ -62,12 +66,14 @@ async fn execute_search(
     error_message: UseStateHandle<Option<String>>,
     loading: UseStateHandle<bool>,
 ) {
+    // Update URL with query parameter
     if let Some(window) = web_sys::window() {
         if let Ok(history) = window.history() {
-            let url = format!("?q={}", query);
+            let url = format!("/?q={}", query);
             let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
         }
     }
+
     let response = perform_search_request(&query).await;
     handle_search_response(response, &search_results, &error_message).await;
     loading.set(false);
@@ -125,14 +131,17 @@ fn handle_error(error_message: &UseStateHandle<Option<String>>, error: String) {
 }
 
 fn get_query_param() -> Option<String> {
-    let window = web_sys::window()?;
-    let search = window.location().search().ok()?;
-    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
-    match &params.get("q") {
-        Some(val) => console::log_1(&format!("query-param: {}", val).into()),
-        None => console::log_1(&"query-param: Not found".into()),
-    }
-    params.get("q")
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
+        .and_then(|params| {
+            let result = params.get("q");
+            match &result {
+                Some(val) => console::log_1(&format!("query-param: {}", val).into()),
+                None => console::log_1(&"query-param: Not found".into()),
+            }
+            result
+        })
 }
 
 async fn handle_search_response(
@@ -374,90 +383,10 @@ fn results_list(props: &ResultsListProps) -> Html {
 
 #[function_component(App)]
 pub fn app() -> Html {
-    let search_query = use_state(|| get_query_param().unwrap_or_default());
-    let search_results = use_state(Vec::<SearchResult>::default);
-    let loading = use_state(|| false);
-    let error_message = use_state(Option::<String>::default);
-    let init_done = use_state(|| false);
-
-    {
-        let search_query = search_query.clone();
-        let search_results = search_results.clone();
-        let loading = loading.clone();
-        let error_message = error_message.clone();
-        let init_done = init_done.clone();
-
-        use_effect(move || {
-            if !*init_done {
-                if let Some(query) = get_query_param() {
-                    search_query.set(query.clone());
-                    loading.set(true);
-                    error_message.set(None);
-
-                    wasm_bindgen_futures::spawn_local(async move {
-                        execute_search(query, search_results, error_message, loading).await;
-                    });
-                }
-                init_done.set(true);
-            }
-            || ()
-        });
-    }
-
-    // Callback for the search execution
-    let on_search = {
-        let search_query = search_query.clone();
-        let search_results = search_results.clone();
-        let loading = loading.clone();
-        let error_message = error_message.clone();
-
-        Callback::from(move |query: String| {
-            let search_results = search_results.clone();
-            let loading = loading.clone();
-            let error_message = error_message.clone();
-
-            // Update the main search query state only when actually searching
-            search_query.set(query.clone());
-            loading.set(true);
-            error_message.set(None);
-
-            wasm_bindgen_futures::spawn_local(async move {
-                execute_search(query, search_results, error_message, loading).await;
-            });
-        })
-    };
-
     html! {
-        <div class="min-h-screen flex flex-col items-center justify-center bg-gray-700 p-4">
-            <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-2xl">
-                <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
-                    {"YouTube Caption Search"}
-                </h1>
-
-                <SearchBar
-                    query={(*search_query).clone()}
-                    loading={*loading}
-                    on_search={on_search}
-                />
-
-                {
-                    if let Some(msg) = &*error_message {
-                        html! {
-                            <p class="text-red-600 text-center mb-4">{ format!("Error: {msg}") }</p>
-                        }
-                    } else {
-                        html! {}
-                    }
-                }
-
-                <ResultsList
-                    results={(*search_results).clone()}
-                    loading={*loading}
-                    error={(*error_message).clone()}
-                    query={(*search_query).clone()}
-                />
-            </div>
-        </div>
+        <BrowserRouter>
+            <Switch<Route> render={switch} />
+        </BrowserRouter>
     }
 }
 

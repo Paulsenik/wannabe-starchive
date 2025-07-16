@@ -10,3 +10,4 @@ gloo-net = "0.5" # For making HTTP requests
 serde = { version = "1.0", features = ["derive"] }
 chrono = "0.4.41"
 web-sys = { version = "0.3", features = ["console"] } # For logging to browser console
+yew-router = "0.18.0"

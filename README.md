@@ -13,8 +13,8 @@ Inspired by [Starchives](https://github.com/kyjackson/starchives?tab=readme-ov-f
 
 - Docker Compose
 - [Rust](https://www.rust-lang.org/tools/install)
-  - cargo install trunk
-  - rustup target add wasm32-unknown-unknown
+    - cargo install trunk
+    - rustup target add wasm32-unknown-unknown
 - OpenSSL
     - Debian:
         ```bash
@@ -22,6 +22,23 @@ Inspired by [Starchives](https://github.com/kyjackson/starchives?tab=readme-ov-f
         ```
 
 ## Local Deploy
+
+setup `.env` file:
+
+```bash
+touch backend/.env
+```
+
+`.env`-Variables
+
+```
+ELASTICSEARCH_URL = http://localhost:9200
+# https://console.cloud.google.com/apis/api/youtube.googleapis.com/credentials
+YOUTUBE_API_KEY = YOUR-GOOGLE-API-KEY
+ADMIN_TOKEN = BENE_KANN_KEIN_COUNTER_STRIKE
+```
+
+Deploy:
 
 1. Elasticsearch
     ```bash
