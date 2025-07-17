@@ -30,7 +30,7 @@ mod models;
 use models::{Caption, SearchResult, VideoMetadata};
 // <--- ENSURED THIS IS CORRECT
 
-use crate::admin::admin_login;
+use crate::admin::{admin_login, admin_stats, trigger_crawl};
 use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_video;
 
@@ -371,9 +371,9 @@ async fn rocket() -> _ {
                 queue,
                 get_video_metadata,
                 list_videos,
-                admin::admin_login,
-                admin::admin_stats,
-                admin::trigger_crawl
+                admin_login,
+                admin_stats,
+                trigger_crawl
             ],
         )
         .attach(cors)

@@ -16,15 +16,176 @@ pub struct AdminLoginResponse {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AdminStats {
     pub total_videos: i64,
-    pub total_transcripts: i64,
+    pub total_captions: i64,
     pub last_crawl_time: Option<String>,
 }
 
 #[derive(Properties, PartialEq)]
 pub struct AdminPageProps {}
+
+#[derive(Properties, PartialEq)]
+pub struct ErrorMessageProps {
+    pub error_message: Option<String>,
+}
+fn format_iso8601_time_since(iso_date: &str) -> String {
+    if (iso_date == "Never") {
+        return String::from("Never");
+    }
+
+    let now = chrono::Utc::now();
+    let date = match chrono::DateTime::parse_from_rfc3339(iso_date) {
+        Ok(d) => d.with_timezone(&chrono::Utc),
+        Err(_) => return String::from("Invalid date"),
+    };
+
+    let duration = now.signed_duration_since(date);
+    let seconds = duration.num_seconds();
+
+    if seconds < 60 {
+        return format!("{}s", seconds);
+    }
+
+    let minutes = seconds / 60;
+    if minutes < 60 {
+        let remaining_seconds = seconds % 60;
+        return format!("{}m {}s ago", minutes, remaining_seconds);
+    }
+
+    let hours = minutes / 60;
+    if hours < 24 {
+        let remaining_minutes = minutes % 60;
+        return format!("{}h {}m ago", hours, remaining_minutes);
+    }
+
+    let days = hours / 24;
+    let remaining_hours = hours % 24;
+    format!("{}d {}h ago", days, remaining_hours)
+}
+
+#[function_component(ErrorMessage)]
+pub fn error_message(props: &ErrorMessageProps) -> Html {
+    if let Some(msg) = &props.error_message {
+        html! {
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+                { msg }
+            </div>
+        }
+    } else {
+        html! {}
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct StatsPanelProps {
+    pub stats: Option<AdminStats>,
+}
+
+#[function_component(StatsPanel)]
+pub fn stats_panel(props: &StatsPanelProps) -> Html {
+    if let Some(stats_data) = &props.stats {
+        html! {
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-blue-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold text-blue-800">{"Total Videos"}</h3>
+                    <p class="text-2xl font-bold text-blue-600">{stats_data.total_videos}</p>
+                </div>
+                <div class="bg-green-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold text-green-800">{"Total Captions"}</h3>
+                    <p class="text-2xl font-bold text-green-600">{stats_data.total_captions}</p>
+                </div>
+                <div class="bg-purple-100 p-4 rounded-lg">
+                    <h3 class="text-lg font-semibold text-purple-800">{"Last Crawl"}</h3>
+                    <p class="text-2xl font-bold text-purple-600">
+                        {format_iso8601_time_since(stats_data.last_crawl_time.as_deref().unwrap_or("Never"))}
+                    </p>
+                </div>
+            </div>
+        }
+    } else {
+        html! {
+            <div class="bg-gray-100 p-4 rounded-lg mb-6">
+                <p class="text-gray-600">{"Loading stats..."}</p>
+            </div>
+        }
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct LoginFormProps {
+    pub login_token_input: String,
+    pub loading: bool,
+    pub on_token_input: Callback<InputEvent>,
+    pub on_login_submit: Callback<web_sys::SubmitEvent>,
+}
+
+#[function_component(LoginForm)]
+pub fn login_form(props: &LoginFormProps) -> Html {
+    html! {
+        <form onsubmit={props.on_login_submit.clone()} class="max-w-md mx-auto">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">
+                    {"Admin Token"}
+                </label>
+                <input
+                    type="password"
+                    class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter your admin token..."
+                    value={props.login_token_input.clone()}
+                    oninput={props.on_token_input.clone()}
+                    disabled={props.loading}
+                />
+            </div>
+            <button
+                type="submit"
+                disabled={props.loading}
+                class="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700 disabled:opacity-50"
+            >
+                {if props.loading { "Logging in..." } else { "Login" }}
+            </button>
+        </form>
+    }
+}
+
+#[derive(Properties, PartialEq)]
+pub struct DashboardProps {
+    pub stats: AdminStats,
+    pub loading: bool,
+    pub on_logout: Callback<MouseEvent>,
+    pub on_trigger_crawl: Callback<MouseEvent>,
+}
+
+#[function_component(Dashboard)]
+pub fn dashboard(props: &DashboardProps) -> Html {
+    html! {
+        <div>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800">{"Dashboard"}</h2>
+                <button
+                    onclick={props.on_logout.clone()}
+                    class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                >
+                    {"Logout"}
+                </button>
+            </div>
+
+            <StatsPanel stats={props.stats.clone()} />
+
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">{"Actions"}</h3>
+                <button
+                    onclick={props.on_trigger_crawl.clone()}
+                    disabled={props.loading}
+                    class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                    {if props.loading { "Processing..." } else { "Trigger Crawl" }}
+                </button>
+            </div>
+        </div>
+    }
+}
 
 #[function_component(AdminPage)]
 pub fn admin_page(_props: &AdminPageProps) -> Html {
@@ -161,97 +322,30 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                         </Link<Route>>
                     </div>
 
-                    {
-                        if let Some(msg) = &*error_message {
-                            html! {
-                                <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                                    { msg }
-                                </div>
-                            }
-                        } else {
-                            html! {}
-                        }
-                    }
+                    <ErrorMessage error_message={(*error_message).clone()} />
 
                     {
                         if *is_authenticated {
                             html! {
-                                <div>
-                                    <div class="flex justify-between items-center mb-6">
-                                        <h2 class="text-2xl font-semibold text-gray-800">{"Dashboard"}</h2>
-                                        <button
-                                            onclick={on_logout}
-                                            class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-                                        >
-                                            {"Logout"}
-                                        </button>
-                                    </div>
-
-                                    {
-                                        if let Some(stats_data) = &*stats {
-                                            html! {
-                                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                                                    <div class="bg-blue-100 p-4 rounded-lg">
-                                                        <h3 class="text-lg font-semibold text-blue-800">{"Total Videos"}</h3>
-                                                        <p class="text-2xl font-bold text-blue-600">{stats_data.total_videos}</p>
-                                                    </div>
-                                                    <div class="bg-green-100 p-4 rounded-lg">
-                                                        <h3 class="text-lg font-semibold text-green-800">{"Total Transcripts"}</h3>
-                                                        <p class="text-2xl font-bold text-green-600">{stats_data.total_transcripts}</p>
-                                                    </div>
-                                                    <div class="bg-purple-100 p-4 rounded-lg">
-                                                        <h3 class="text-lg font-semibold text-purple-800">{"Last Crawl"}</h3>
-                                                        <p class="text-sm text-purple-600">
-                                                            {stats_data.last_crawl_time.as_deref().unwrap_or("Never")}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            }
-                                        } else {
-                                            html! {
-                                                <div class="bg-gray-100 p-4 rounded-lg mb-6">
-                                                    <p class="text-gray-600">{"Loading stats..."}</p>
-                                                </div>
-                                            }
-                                        }
-                                    }
-
-                                    <div class="bg-gray-50 p-4 rounded-lg">
-                                        <h3 class="text-lg font-semibold text-gray-800 mb-4">{"Actions"}</h3>
-                                        <button
-                                            onclick={on_trigger_crawl}
-                                            disabled={*loading}
-                                            class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-                                        >
-                                            {if *loading { "Processing..." } else { "Trigger Crawl" }}
-                                        </button>
-                                    </div>
-                                </div>
+                                <Dashboard
+                                    stats={(*stats).clone().unwrap_or_else(|| AdminStats {
+                                        total_videos: 0,
+                                        total_captions: 0,
+                                        last_crawl_time: None,
+                                    })}
+                                    loading={*loading}
+                                    on_logout={on_logout}
+                                    on_trigger_crawl={on_trigger_crawl}
+                                />
                             }
                         } else {
                             html! {
-                                <form onsubmit={on_login_submit} class="max-w-md mx-auto">
-                                    <div class="mb-4">
-                                        <label class="block text-gray-700 text-sm font-bold mb-2">
-                                            {"Admin Token"}
-                                        </label>
-                                        <input
-                                            type="password"
-                                            class="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter your admin token..."
-                                            value={(*login_token_input).clone()}
-                                            oninput={on_token_input}
-                                            disabled={*loading}
-                                        />
-                                    </div>
-                                    <button
-                                        type="submit"
-                                        disabled={*loading}
-                                        class="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700 disabled:opacity-50"
-                                    >
-                                        {if *loading { "Logging in..." } else { "Login" }}
-                                    </button>
-                                </form>
+                                <LoginForm
+                                    login_token_input={(*login_token_input).clone()}
+                                    loading={*loading}
+                                    on_token_input={on_token_input}
+                                    on_login_submit={on_login_submit}
+                                />
                             }
                         }
                     }
