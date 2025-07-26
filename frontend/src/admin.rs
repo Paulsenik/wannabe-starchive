@@ -1,7 +1,7 @@
 use crate::router::Route;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use web_sys::HtmlInputElement;
+use web_sys::{window, HtmlInputElement};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -31,7 +31,7 @@ pub struct ErrorMessageProps {
     pub error_message: Option<String>,
 }
 fn format_iso8601_time_since(iso_date: &str) -> String {
-    if (iso_date == "Never") {
+    if iso_date == "Never" {
         return String::from("Never");
     }
 
@@ -189,9 +189,14 @@ pub fn dashboard(props: &DashboardProps) -> Html {
 
 #[function_component(AdminPage)]
 pub fn admin_page(_props: &AdminPageProps) -> Html {
-    let admin_token = use_state(|| None::<String>);
+    let admin_token = use_state(|| {
+        window()
+            .and_then(|w| w.session_storage().ok())
+            .and_then(|s| s.and_then(|storage| storage.get_item("admin_token").ok()))
+            .flatten()
+    });
     let login_token_input = use_state(|| String::new());
-    let is_authenticated = use_state(|| false);
+    let is_authenticated = use_state(|| admin_token.is_some());
     let loading = use_state(|| false);
     let error_message = use_state(|| None::<String>);
     let stats = use_state(|| None::<AdminStats>);
@@ -234,6 +239,11 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                 match login_admin(&token).await {
                     Ok(response) => {
                         if response.success {
+                            if let Some(window) = window() {
+                                if let Ok(Some(storage)) = window.session_storage() {
+                                    let _ = storage.set_item("admin_token", &token);
+                                }
+                            }
                             admin_token.set(Some(token.clone()));
                             is_authenticated.set(true);
 
@@ -301,6 +311,11 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         let error_message = error_message.clone();
 
         Callback::from(move |_| {
+            if let Some(window) = window() {
+                if let Ok(Some(storage)) = window.session_storage() {
+                    let _ = storage.remove_item("admin_token");
+                }
+            }
             admin_token.set(None);
             is_authenticated.set(false);
             stats.set(None);
