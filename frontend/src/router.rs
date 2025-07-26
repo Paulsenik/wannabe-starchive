@@ -2,7 +2,12 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 
 use crate::admin::AdminPage;
-use crate::{execute_search, get_query_param, ResultsList, SearchBar, SearchResult};
+use crate::admin_captions::AdminCaptionsPage;
+use crate::admin_channels::AdminChannelsPage;
+use crate::admin_queue::AdminQueuePage;
+use crate::admin_videos::AdminVideosPage;
+use crate::models::SearchResult;
+use crate::{execute_search, get_query_param, ResultsList, SearchBar};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
@@ -10,6 +15,14 @@ pub enum Route {
     Home,
     #[at("/admin")]
     Admin,
+    #[at("/admin/videos")]
+    AdminVideos,
+    #[at("/admin/captions")]
+    AdminCaptions,
+    #[at("/admin/channels")]
+    AdminChannels,
+    #[at("/admin/queue")]
+    AdminQueue,
     #[not_found]
     #[at("/404")]
     NotFound,
@@ -19,6 +32,10 @@ pub fn switch(routes: Route) -> Html {
     match routes {
         Route::Home => html! { <SearchApp /> },
         Route::Admin => html! { <AdminPage /> },
+        Route::AdminVideos => html! { <AdminVideosPage /> },
+        Route::AdminCaptions => html! { <AdminCaptionsPage /> },
+        Route::AdminChannels => html! { <AdminChannelsPage /> },
+        Route::AdminQueue => html! { <AdminQueuePage /> },
         Route::NotFound => html! {
             <div class="min-h-screen flex items-center justify-center bg-gray-700">
                 <div class="bg-white p-8 rounded-lg shadow-lg text-center">

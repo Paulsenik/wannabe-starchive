@@ -1,4 +1,8 @@
 mod admin;
+mod admin_captions;
+mod admin_channels;
+mod admin_queue;
+mod admin_videos;
 mod models;
 mod router;
 
@@ -60,7 +64,7 @@ fn format_iso8601_duration(duration: &str) -> String {
     }
 }
 
-async fn execute_search(
+pub async fn execute_search(
     query: String,
     search_results: UseStateHandle<Vec<SearchResult>>,
     error_message: UseStateHandle<Option<String>>,
@@ -130,7 +134,7 @@ fn handle_error(error_message: &UseStateHandle<Option<String>>, error: String) {
     web_sys::console::error_1(&error.into());
 }
 
-fn get_query_param() -> Option<String> {
+pub fn get_query_param() -> Option<String> {
     web_sys::window()
         .and_then(|window| window.location().search().ok())
         .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
@@ -345,7 +349,7 @@ fn video_results(props: &VideoResultsProps) -> Html {
 }
 
 #[function_component(ResultsList)]
-fn results_list(props: &ResultsListProps) -> Html {
+pub fn results_list(props: &ResultsListProps) -> Html {
     if props.results.is_empty()
         && !props.loading
         && props.error.is_none()

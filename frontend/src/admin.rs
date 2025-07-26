@@ -154,7 +154,6 @@ pub struct DashboardProps {
     pub stats: AdminStats,
     pub loading: bool,
     pub on_logout: Callback<MouseEvent>,
-    pub on_trigger_crawl: Callback<MouseEvent>,
 }
 
 #[function_component(Dashboard)]
@@ -171,17 +170,27 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                 </button>
             </div>
 
-            <StatsPanel stats={props.stats.clone()} />
-
-            <div class="bg-gray-50 p-4 rounded-lg">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">{"Actions"}</h3>
-                <button
-                    onclick={props.on_trigger_crawl.clone()}
-                    disabled={props.loading}
-                    class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                    {if props.loading { "Processing..." } else { "Trigger Crawl" }}
-                </button>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <Link<Route> to={Route::AdminVideos} classes="bg-blue-600 text-white p-4 rounded text-center hover:bg-blue-700">
+                    <div class="font-semibold text-lg mb-2">{"Manage Videos"}</div>
+                    <div class="text-3xl font-bold">{props.stats.total_videos}</div>
+                    <div class="text-sm opacity-80">{"Total Videos"}</div>
+                </Link<Route>>
+                <Link<Route> to={Route::AdminCaptions} classes="bg-green-600 text-white p-4 rounded text-center hover:bg-green-700">
+                    <div class="font-semibold text-lg mb-2">{"Manage Captions"}</div>
+                    <div class="text-3xl font-bold">{props.stats.total_captions}</div>
+                    <div class="text-sm opacity-80">{"Total Captions"}</div>
+                </Link<Route>>
+                <Link<Route> to={Route::AdminQueue} classes="bg-purple-600 text-white p-4 rounded text-center hover:bg-purple-700">
+                    <div class="font-semibold text-lg mb-2">{"Download Queue"}</div>
+                    <div class="text-3xl font-bold">{format_iso8601_time_since(props.stats.last_crawl_time.as_deref().unwrap_or("Never"))}</div>
+                    <div class="text-sm opacity-80">{"Last Crawl"}</div>
+                </Link<Route>>
+                <Link<Route> to={Route::AdminChannels} classes="bg-orange-600 text-white p-4 rounded text-center hover:bg-orange-700">
+                    <div class="font-semibold text-lg mb-2">{"Manage Channels"}</div>
+                    <div class="text-3xl font-bold">{"..."}</div>
+                    <div class="text-sm opacity-80">{"Channel Management"}</div>
+                </Link<Route>>
             </div>
         </div>
     }
@@ -269,40 +278,6 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
         })
     };
 
-    let on_trigger_crawl = {
-        let admin_token = admin_token.clone();
-        let loading = loading.clone();
-        let error_message = error_message.clone();
-
-        Callback::from(move |_| {
-            if let Some(token) = &*admin_token {
-                let token = token.clone();
-                let loading = loading.clone();
-                let error_message = error_message.clone();
-
-                loading.set(true);
-                wasm_bindgen_futures::spawn_local(async move {
-                    match trigger_crawl(&token).await {
-                        Ok(response) => {
-                            if !response.success {
-                                error_message.set(Some(response.message));
-                            } else {
-                                error_message
-                                    .set(Some("Crawl triggered successfully!".to_string()));
-                            }
-                        }
-                        Err(e) => {
-                            error_message.set(Some(format!("Crawl trigger failed: {}", e)));
-                        }
-                    }
-                    loading.set(false);
-                });
-            } else {
-                error_message.set(Some("No admin token available".to_string()));
-            }
-        })
-    };
-
     let on_logout = {
         let admin_token = admin_token.clone();
         let is_authenticated = is_authenticated.clone();
@@ -350,7 +325,6 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                     })}
                                     loading={*loading}
                                     on_logout={on_logout}
-                                    on_trigger_crawl={on_trigger_crawl}
                                 />
                             }
                         } else {
@@ -408,26 +382,6 @@ async fn load_admin_stats(token: &str) -> Result<AdminStats, String> {
     if response.ok() {
         response
             .json::<AdminStats>()
-            .await
-            .map_err(|e| format!("JSON parse error: {}", e))
-    } else {
-        Err(format!("HTTP error: {}", response.status()))
-    }
-}
-
-async fn trigger_crawl(token: &str) -> Result<AdminLoginResponse, String> {
-    let backend_url = "http://localhost:8000";
-    let url = format!("{}/admin/trigger-crawl", backend_url);
-
-    let response = Request::post(&url)
-        .header("Authorization", &format!("Bearer {}", token))
-        .send()
-        .await
-        .map_err(|e| format!("Network error: {}", e))?;
-
-    if response.ok() {
-        response
-            .json::<AdminLoginResponse>()
             .await
             .map_err(|e| format!("JSON parse error: {}", e))
     } else {
