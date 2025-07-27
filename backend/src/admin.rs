@@ -1,9 +1,9 @@
+use crate::crawler::QueueItem;
 use elasticsearch::Elasticsearch;
 use rocket::http::Status;
 use rocket::request::{self, FromRequest, Outcome};
 use rocket::serde::{Deserialize, Serialize};
 use rocket::{Request, State};
-use serde_json::json;
 use std::env;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +25,54 @@ pub struct AdminStats {
     pub total_videos: i64,
     pub total_captions: i64,
     pub last_crawl_time: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminEnqueueRequest {
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminEnqueueResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AdminQueueResponse {
+    pub success: bool,
+    pub message: String,
+    pub items: Vec<QueueItem>,
+}
+
+fn extract_youtube_video_id(url: &str) -> Option<String> {
+    use url::Url;
+
+    let parsed_url = Url::parse(url).ok()?;
+    let host = parsed_url.host_str()?;
+
+    // Handle different YouTube URL formats
+    match host {
+        "www.youtube.com" | "youtube.com" | "m.youtube.com" => {
+            // Standard YouTube URLs: https://www.youtube.com/watch?v=VIDEO_ID
+            if parsed_url.path() == "/watch" {
+                parsed_url
+                    .query_pairs()
+                    .find(|(key, _)| key == "v")
+                    .map(|(_, value)| value.to_string())
+            } else {
+                None
+            }
+        }
+        "youtu.be" => {
+            // Short YouTube URLs: https://youtu.be/VIDEO_ID
+            parsed_url
+                .path_segments()
+                .and_then(|segments| segments.last())
+                .map(|id| id.to_string())
+        }
+        _ => None,
+    }
 }
 
 #[rocket::async_trait]
@@ -53,7 +101,7 @@ impl<'r> FromRequest<'r> for AdminToken {
     }
 }
 
-#[rocket::post("/admin/login", data = "<login_request>")]
+#[rocket::post("/login", data = "<login_request>")]
 pub async fn admin_login(
     login_request: rocket::serde::json::Json<AdminLoginRequest>,
 ) -> rocket::serde::json::Json<AdminLoginResponse> {
@@ -90,6 +138,8 @@ async fn get_index_count(es_client: &Elasticsearch, index: &str) -> i64 {
 }
 
 async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<String> {
+    use serde_json::json;
+
     match es_client
         .search(elasticsearch::SearchParts::Index(&["youtube_videos"]))
         .body(json!({
@@ -113,7 +163,7 @@ async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<String> {
     }
 }
 
-#[rocket::get("/admin/stats")]
+#[rocket::get("/stats")]
 pub async fn admin_stats(
     _token: AdminToken,
     state: &State<crate::AppState>,
@@ -133,11 +183,75 @@ pub async fn admin_stats(
     })
 }
 
-#[rocket::post("/admin/trigger-crawl")]
-pub async fn trigger_crawl(_token: AdminToken) -> rocket::serde::json::Json<AdminLoginResponse> {
-    // This is a placeholder - you should implement actual crawl triggering
-    rocket::serde::json::Json(AdminLoginResponse {
+#[rocket::get("/queue")]
+pub async fn get_queue(
+    _token: AdminToken,
+    state: &State<crate::AppState>,
+) -> rocket::serde::json::Json<AdminQueueResponse> {
+    let items = state.video_queue.get_all_items();
+
+    rocket::serde::json::Json(AdminQueueResponse {
         success: true,
-        message: "Crawl triggered successfully".to_string(),
+        message: "Queue items retrieved successfully".to_string(),
+        items,
     })
+}
+
+#[rocket::post("/queue", data = "<enqueue_request>")]
+pub async fn admin_enqueue(
+    _token: AdminToken,
+    state: &State<crate::AppState>,
+    enqueue_request: rocket::serde::json::Json<AdminEnqueueRequest>,
+) -> rocket::serde::json::Json<AdminEnqueueResponse> {
+    let url = &enqueue_request.url;
+
+    // Extract video ID from URL
+    let video_id = match extract_youtube_video_id(url) {
+        Some(id) => id,
+        None => {
+            return rocket::serde::json::Json(AdminEnqueueResponse {
+                success: false,
+                message: "Invalid YouTube URL format".to_string(),
+            });
+        }
+    };
+
+    // Add video to the queue
+    let item_id = state.video_queue.add_video(url.clone(), video_id);
+
+    if !item_id.is_empty() {
+        rocket::serde::json::Json(AdminEnqueueResponse {
+            success: true,
+            message: "URL added to queue successfully".to_string(),
+        })
+    } else {
+        rocket::serde::json::Json(AdminEnqueueResponse {
+            success: false,
+            message: "Failed to add URL to queue".to_string(),
+        })
+    }
+}
+
+#[rocket::delete("/queue/<id>")]
+pub async fn remove_queue_item(
+    _token: AdminToken,
+    state: &State<crate::AppState>,
+    id: &str,
+) -> rocket::serde::json::Json<AdminLoginResponse> {
+    if state.video_queue.remove_item(&id) {
+        rocket::serde::json::Json(AdminLoginResponse {
+            success: true,
+            message: "Queue item removed successfully".to_string(),
+        })
+    } else {
+        rocket::serde::json::Json(AdminLoginResponse {
+            success: false,
+            message: "Queue item not found".to_string(),
+        })
+    }
+}
+
+#[rocket::options("/queue/<_id>")]
+pub fn delete_queue_item_options(_id: String) -> rocket::response::status::NoContent {
+    rocket::response::status::NoContent
 }

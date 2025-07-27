@@ -9,13 +9,19 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
 
-// This function will be called periodically by the scheduler.
-// In a real application, you'd fetch video IDs from a more dynamic source
-// (e.g., YouTube Data API, a list of channels, or a queue).
-static VIDEO_IDS: &[&str] = &[];
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueItem {
+    pub id: String,
+    pub url: String,
+    pub video_id: String,
+    pub status: String,
+    pub added_at: String,
+    pub processed_at: Option<String>,
+    pub error_message: Option<String>,
+}
 
 pub struct VideoQueue {
-    queue: Arc<Mutex<VecDeque<String>>>,
+    queue: Arc<Mutex<VecDeque<QueueItem>>>,
 }
 
 impl Default for VideoQueue {
@@ -26,27 +32,87 @@ impl Default for VideoQueue {
 
 impl VideoQueue {
     pub fn new() -> Self {
-        let mut queue = VecDeque::new();
-        for &id in VIDEO_IDS {
-            queue.push_back(id.to_string());
-        }
+        let queue = VecDeque::new();
         VideoQueue {
             queue: Arc::new(Mutex::new(queue)),
         }
     }
 
-    pub fn add_video(&self, video_id: String) {
+    pub fn add_video(&self, url: String, video_id: String) -> String {
         if let Ok(mut queue) = self.queue.lock() {
-            queue.push_back(video_id);
+            let item_id = format!("{}_{}", chrono::Utc::now().timestamp(), video_id);
+            let item = QueueItem {
+                id: item_id.clone(),
+                url,
+                video_id,
+                status: "pending".to_string(),
+                added_at: chrono::Utc::now().to_rfc3339(),
+                processed_at: None,
+                error_message: None,
+            };
+            queue.push_back(item);
+            item_id
+        } else {
+            String::new()
         }
     }
 
-    pub fn pop_next_video(&self) -> Option<String> {
+    pub fn pop_next_video(&self) -> Option<QueueItem> {
         if let Ok(mut queue) = self.queue.lock() {
-            queue.pop_front()
+            if let Some(mut item) = queue.pop_front() {
+                item.status = "processing".to_string();
+                Some(item)
+            } else {
+                None
+            }
         } else {
             None
         }
+    }
+
+    pub fn mark_completed(&self, item_id: &str) {
+        if let Ok(mut queue) = self.queue.lock() {
+            // Find and update the item if it exists in the queue
+            // Note: In practice, completed items might be moved to a separate collection
+            for item in queue.iter_mut() {
+                if item.id == item_id {
+                    item.status = "completed".to_string();
+                    item.processed_at = Some(chrono::Utc::now().to_rfc3339());
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn mark_failed(&self, item_id: &str, error_message: String) {
+        if let Ok(mut queue) = self.queue.lock() {
+            for item in queue.iter_mut() {
+                if item.id == item_id {
+                    item.status = "failed".to_string();
+                    item.processed_at = Some(chrono::Utc::now().to_rfc3339());
+                    item.error_message = Some(error_message);
+                    break;
+                }
+            }
+        }
+    }
+
+    pub fn get_all_items(&self) -> Vec<QueueItem> {
+        if let Ok(queue) = self.queue.lock() {
+            queue.iter().cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn remove_item(&self, item_id: &str) -> bool {
+        if let Ok(mut queue) = self.queue.lock() {
+            if let Some(pos) = queue.iter().position(|item| item.id == item_id) {
+                queue.remove(pos);
+                return true;
+            }
+        }
+        false
     }
 
     pub fn get_size(&self) -> usize {
@@ -245,11 +311,14 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
 pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQueue) {
     info!("Starting YouTube caption crawl...");
 
-    while let Some(video_id) = video_queue.pop_next_video() {
-        info!("Processing video ID: {video_id}");
+    while let Some(item) = video_queue.pop_next_video() {
+        info!("Processing video ID: {}", item.video_id);
 
-        process_video_metadata(es_client, &video_id).await;
-        process_video_captions(es_client, &video_id).await;
+        process_video_metadata(es_client, &item.video_id).await;
+        process_video_captions(es_client, &item.video_id).await;
+
+        // Mark as completed
+        video_queue.mark_completed(&item.id);
     }
     info!("YouTube caption crawl completed.");
 }

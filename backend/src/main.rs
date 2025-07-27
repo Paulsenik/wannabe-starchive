@@ -30,7 +30,10 @@ mod models;
 use models::{Caption, SearchResult, VideoMetadata};
 // <--- ENSURED THIS IS CORRECT
 
-use crate::admin::{admin_login, admin_stats, trigger_crawl};
+use crate::admin::{
+    admin_enqueue, admin_login, admin_stats, delete_queue_item_options, get_queue,
+    remove_queue_item,
+};
 use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_video;
 
@@ -47,11 +50,6 @@ pub struct AppState {
 #[get("/")]
 async fn index() -> &'static str {
     "Welcome to the YouTube Caption Search Backend!"
-}
-
-#[get("/queue/add/<id>")]
-async fn queue(state: &State<AppState>, id: &str) {
-    state.video_queue.add_video(id.to_string());
 }
 
 /// Search endpoint
@@ -345,14 +343,28 @@ async fn rocket() -> _ {
     info!("Crawler scheduler started.");
 
     // Set up CORS for Rocket
+    use rocket::http::Method;
+    use rocket_cors::AllowedHeaders;
+
     let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::all())
+        .allowed_origins(AllowedOrigins::some_exact(&["http://localhost:8080"]))
         .allowed_methods(
-            vec![rocket::http::Method::Get, rocket::http::Method::Post]
-                .into_iter()
-                .map(From::from)
-                .collect(),
+            vec![
+                Method::Get,
+                Method::Post,
+                Method::Put,
+                Method::Delete,
+                Method::Options,
+            ]
+            .into_iter()
+            .map(From::from)
+            .collect(),
         )
+        .allowed_headers(AllowedHeaders::some(&[
+            "Authorization",
+            "Accept",
+            "Content-Type",
+        ]))
         .allow_credentials(true)
         .to_cors()
         .expect("Failed to create CORS options");
@@ -365,15 +377,17 @@ async fn rocket() -> _ {
         })
         .mount(
             "/",
+            routes![index, search_captions, get_video_metadata, list_videos],
+        )
+        .mount(
+            "/admin",
             routes![
-                index,
-                search_captions,
-                queue,
-                get_video_metadata,
-                list_videos,
                 admin_login,
                 admin_stats,
-                trigger_crawl
+                get_queue,
+                admin_enqueue,
+                remove_queue_item,
+                delete_queue_item_options,
             ],
         )
         .attach(cors)

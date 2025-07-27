@@ -28,6 +28,7 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
     let queue_items = use_state(Vec::<QueueItem>::new);
     let loading = use_state(|| false);
     let error_message = use_state(|| None::<String>);
+    let success_message = use_state(|| None::<String>);
     let new_url = use_state(String::new);
 
     // Load queue items on component mount
@@ -65,9 +66,14 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
         let new_url = new_url.clone();
         let queue_items = queue_items.clone();
         let error_message = error_message.clone();
+        let success_message = success_message.clone();
 
         Callback::from(move |e: web_sys::SubmitEvent| {
             e.prevent_default();
+
+            // Clear previous messages
+            error_message.set(None);
+            success_message.set(None);
 
             let url = (*new_url).clone();
             if url.is_empty() {
@@ -78,17 +84,17 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
             let new_url = new_url.clone();
             let queue_items = queue_items.clone();
             let error_message = error_message.clone();
+            let success_message = success_message.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 match add_url_to_queue(&url).await {
                     Ok(_) => {
                         new_url.set(String::new());
+                        success_message.set(Some("URL added to queue successfully!".to_string()));
                         // Reload queue items
                         match load_queue_items().await {
                             Ok(items) => {
                                 queue_items.set(items);
-                                error_message
-                                    .set(Some("URL added to queue successfully!".to_string()));
                             }
                             Err(e) => {
                                 error_message.set(Some(format!("Failed to reload queue: {}", e)));
@@ -106,14 +112,21 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
     let on_delete_item = {
         let queue_items = queue_items.clone();
         let error_message = error_message.clone();
+        let success_message = success_message.clone();
 
         Callback::from(move |item_id: String| {
             let queue_items = queue_items.clone();
             let error_message = error_message.clone();
+            let success_message = success_message.clone();
+
+            // Clear previous messages
+            error_message.set(None);
+            success_message.set(None);
 
             wasm_bindgen_futures::spawn_local(async move {
                 match delete_queue_item(&item_id).await {
                     Ok(_) => {
+                        success_message.set(Some("Item deleted successfully!".to_string()));
                         // Remove item from list
                         let current_items = (*queue_items).clone();
                         let updated_items: Vec<QueueItem> = current_items
@@ -142,6 +155,18 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
                             {"← Back to Overview"}
                         </Link<Route>>
                     </div>
+
+                    {
+                        if let Some(msg) = &*success_message {
+                            html! {
+                                <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+                                    { msg }
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
 
                     {
                         if let Some(msg) = &*error_message {
@@ -259,6 +284,13 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct QueueResponse {
+    success: bool,
+    message: String,
+    items: Vec<QueueItem>,
+}
+
 async fn load_queue_items() -> Result<Vec<QueueItem>, String> {
     let backend_url = "http://localhost:8000";
     let url = format!("{}/admin/queue", backend_url);
@@ -276,10 +308,11 @@ async fn load_queue_items() -> Result<Vec<QueueItem>, String> {
         .map_err(|e| format!("Network error: {}", e))?;
 
     if response.ok() {
-        response
-            .json::<Vec<QueueItem>>()
+        let queue_response = response
+            .json::<QueueResponse>()
             .await
-            .map_err(|e| format!("JSON parse error: {}", e))
+            .map_err(|e| format!("JSON parse error: {}", e))?;
+        Ok(queue_response.items)
     } else {
         Err(format!("HTTP error: {}", response.status()))
     }

@@ -210,6 +210,31 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
     let error_message = use_state(|| None::<String>);
     let stats = use_state(|| None::<AdminStats>);
 
+    // Load stats on component mount if already authenticated
+    {
+        let admin_token = admin_token.clone();
+        let stats = stats.clone();
+        let error_message = error_message.clone();
+
+        use_effect_with((), move |_| {
+            if let Some(token) = (*admin_token).clone() {
+                let stats = stats.clone();
+                let error_message = error_message.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    match load_admin_stats(&token).await {
+                        Ok(stats_data) => {
+                            stats.set(Some(stats_data));
+                        }
+                        Err(e) => {
+                            error_message.set(Some(format!("Failed to load stats: {}", e)));
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     let on_token_input = {
         let login_token_input = login_token_input.clone();
         Callback::from(move |e: InputEvent| {
