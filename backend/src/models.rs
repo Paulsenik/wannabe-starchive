@@ -30,4 +30,5 @@ pub struct VideoMetadata {
     pub comment_count: i64,
     pub has_captions: bool,
     pub tags: Vec<String>,
+    pub video_id: String,
 }

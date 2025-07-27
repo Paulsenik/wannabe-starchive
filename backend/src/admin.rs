@@ -1,9 +1,11 @@
 use crate::crawler::QueueItem;
-use elasticsearch::Elasticsearch;
+use crate::models::VideoMetadata;
+use elasticsearch::{DeleteParts, Elasticsearch};
 use rocket::http::Status;
 use rocket::request::{self, FromRequest, Outcome};
 use rocket::serde::{Deserialize, Serialize};
 use rocket::{Request, State};
+use serde_json::json;
 use std::env;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +47,14 @@ pub struct AdminQueueResponse {
     pub items: Vec<QueueItem>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminVideoListResponse {
+    pub videos: Vec<VideoMetadata>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+}
+
 fn extract_youtube_video_id(url: &str) -> Option<String> {
     use url::Url;
 
@@ -73,6 +83,73 @@ fn extract_youtube_video_id(url: &str) -> Option<String> {
         }
         _ => None,
     }
+}
+
+pub async fn delete_video(
+    es_client: &Elasticsearch,
+    video_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match es_client
+        .delete(DeleteParts::IndexId("youtube_videos", video_id))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if !response.status_code().is_success() {
+                log::error!(
+                    "Failed to delete metadata for video ID {}: {:?}",
+                    video_id,
+                    response.text().await
+                );
+            } else {
+                log::info!("Successfully deleted metadata for video ID: {}", video_id);
+            }
+        }
+        Err(e) => {
+            log::error!(
+                "Failed to delete metadata for video ID {}: {:?}",
+                video_id,
+                e
+            );
+        }
+    }
+
+    // Delete video captions
+    match es_client
+        .delete_by_query(elasticsearch::DeleteByQueryParts::Index(&[
+            "youtube_captions",
+        ]))
+        .body(json!({
+            "query": {
+                "match": {
+                    "video_id": video_id
+                }
+            }
+        }))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if !response.status_code().is_success() {
+                log::error!(
+                    "Failed to delete captions for video ID {}: {:?}",
+                    video_id,
+                    response.text().await
+                );
+            } else {
+                log::info!("Successfully deleted captions for video ID: {}", video_id);
+            }
+        }
+        Err(e) => {
+            log::error!(
+                "Failed to delete captions for video ID {}: {:?}",
+                video_id,
+                e
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[rocket::async_trait]
@@ -197,6 +274,18 @@ pub async fn get_queue(
     })
 }
 
+#[rocket::delete("/video/<video_id>")]
+pub async fn delete_video_endpoint(
+    _token: AdminToken,
+    state: &State<crate::AppState>,
+    video_id: &str,
+) -> Result<Status, Status> {
+    match delete_video(&state.es_client, video_id).await {
+        Ok(_) => Ok(Status::Ok),
+        Err(_) => Err(Status::InternalServerError),
+    }
+}
+
 #[rocket::post("/queue", data = "<enqueue_request>")]
 pub async fn admin_enqueue(
     _token: AdminToken,
@@ -251,7 +340,70 @@ pub async fn remove_queue_item(
     }
 }
 
-#[rocket::options("/queue/<_id>")]
-pub fn delete_queue_item_options(_id: String) -> rocket::response::status::NoContent {
-    rocket::response::status::NoContent
+#[rocket::get("/videos?<page>&<per_page>")]
+pub async fn get_videos(
+    _token: AdminToken,
+    state: &State<crate::AppState>,
+    page: Option<i64>,
+    per_page: Option<i64>,
+) -> rocket::serde::json::Json<AdminVideoListResponse> {
+    let page = page.unwrap_or(1);
+    let per_page = per_page.unwrap_or(10);
+    let from = (page - 1) * per_page;
+
+    let response = state
+        .es_client
+        .search(elasticsearch::SearchParts::Index(&["youtube_videos"]))
+        .body(json!({
+            "from": from,
+            "size": per_page,
+            "sort": [{"crawl_date": {"order": "desc"}}],
+            "_source": ["video_id", "title", "channel_name", "channel_id", "upload_date", "crawl_date", "duration", "likes", "views", "comment_count", "has_captions", "tags"]
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let response_body = response.json::<serde_json::Value>().await.unwrap();
+    let total = response_body["hits"]["total"]["value"]
+        .as_i64()
+        .unwrap_or(0);
+
+    let videos: Vec<VideoMetadata> = response_body["hits"]["hits"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|hit| {
+            let source = &hit["_source"];
+            VideoMetadata {
+                title: source["title"].as_str().unwrap_or("").to_string(),
+                channel_name: source["channel_name"].as_str().unwrap_or("").to_string(),
+                channel_id: source["channel_id"].as_str().unwrap_or("").to_string(),
+                upload_date: source["upload_date"].as_str().unwrap_or("").to_string(),
+                crawl_date: source["crawl_date"].as_str().unwrap_or("").to_string(),
+                duration: source["duration"].as_str().unwrap_or("").to_string(),
+                likes: source["likes"].as_i64().unwrap_or(0),
+                views: source["views"].as_i64().unwrap_or(0),
+                comment_count: source["comment_count"].as_i64().unwrap_or(0),
+                has_captions: source["has_captions"].as_bool().unwrap_or(false),
+                tags: source["tags"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(String::from)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                video_id: source["video_id"].as_str().unwrap_or("").to_string(),
+            }
+        })
+        .collect();
+
+    rocket::serde::json::Json(AdminVideoListResponse {
+        videos,
+        total,
+        page,
+        per_page,
+    })
 }

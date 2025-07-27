@@ -1,41 +1,43 @@
+use crate::models::VideoMetadata;
 use crate::router::Route;
+use crate::{format_iso8601_date, format_iso8601_duration, format_number};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::window;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Video {
-    pub id: String,
-    pub title: String,
-    pub channel_name: String,
-    pub duration: Option<String>,
-    pub upload_date: Option<String>,
-    pub view_count: Option<i64>,
-}
-
 #[derive(Properties, PartialEq)]
 pub struct AdminVideosPageProps {}
 
 #[function_component(AdminVideosPage)]
 pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
-    let videos = use_state(Vec::<Video>::new);
+    let videos = use_state(|| Vec::<VideoMetadata>::new());
     let loading = use_state(|| false);
     let error_message = use_state(|| None::<String>);
+    let current_page = use_state(|| 1);
+    let total_items = use_state(|| 0);
+    let per_page = use_state(|| 10);
+
+    // Clone states for pagination
+    let current_page_display = current_page.clone();
+    let per_page_display = per_page.clone();
+    let total_items_display = total_items.clone();
 
     // Load videos on component mount
     {
         let videos = videos.clone();
         let loading = loading.clone();
         let error_message = error_message.clone();
+        let total_items = total_items.clone();
 
-        use_effect_with((), move |_| {
+        use_effect_with(*current_page, move |_| {
             loading.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                match load_videos().await {
-                    Ok(video_list) => {
-                        videos.set(video_list);
+                match load_videos(*current_page, *per_page).await {
+                    Ok(response) => {
+                        videos.set(response.videos);
+                        total_items.set(response.total);
                     }
                     Err(e) => {
                         error_message.set(Some(format!("Failed to load videos: {}", e)));
@@ -60,9 +62,9 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                     Ok(_) => {
                         // Remove video from list
                         let current_videos = (*videos).clone();
-                        let updated_videos: Vec<Video> = current_videos
+                        let updated_videos: Vec<VideoMetadata> = current_videos
                             .into_iter()
-                            .filter(|v| v.id != video_id)
+                            .filter(|v| v.video_id != video_id)
                             .collect();
                         videos.set(updated_videos);
                     }
@@ -114,30 +116,46 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                             <tr>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Title"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Channel"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Upload Date"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Duration"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Views"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Likes"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Comments"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Captions"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Actions"}</th>
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white divide-y divide-gray-200">
                                             {
                                                 (*videos).iter().map(|video| {
-                                                    let video_id = video.id.clone();
+                                                    let video_id = video.video_id.clone();
                                                     let on_delete = on_delete_video.clone();
 
                                                     html! {
-                                                        <tr key={video.id.clone()}>
+                                                        <tr key={video.video_id.clone()}>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                <div class="max-w-xs truncate">{&video.title}</div>
+                                                                <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/watch?v={}", video.video_id)} class="text-blue-600 hover:underline">{&video.title}</a></div>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {&video.channel_name}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {video.duration.as_deref().unwrap_or("N/A")}
+                                                                {format_iso8601_date(&video.upload_date)}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {video.view_count.map(|v| v.to_string()).unwrap_or_else(|| "N/A".to_string())}
+                                                                {format_iso8601_duration(&video.duration)}
+                                                            </td>
+                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {format_number(video.views)}
+                                                            </td>
+                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {format_number(video.likes)}
+                                                            </td>
+                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {format_number(video.comment_count)}
+                                                            </td>
+                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {if video.has_captions { "Yes" } else { "No" }}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                                 <button
@@ -159,6 +177,47 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                             }
                                         </tbody>
                                     </table>
+                                    <div class="mt-4 flex justify-between items-center">
+                                        <div class="text-sm text-gray-700">
+                                            {format!("Showing {} to {} of {} results",
+                                                ((*current_page_display - 1) * *per_page_display + 1),
+                                                (*current_page_display * *per_page_display).min(*total_items_display),
+                                                *total_items_display
+                                            )}
+                                        </div>
+                                        <div class="flex space-x-2">
+                                            <button
+                                                onclick={
+                                                    let current_page = current_page_display.clone();
+                                                    Callback::from(move |_| {
+                                                        if *current_page > 1 {
+                                                            current_page.set(*current_page - 1);
+                                                        }
+                                                    })
+                                                }
+                                                disabled={*current_page_display <= 1}
+                                                class="px-3 py-2 border rounded-md disabled:opacity-50"
+                                            >
+                                                {"Previous"}
+                                            </button>
+                                            <button
+                                                onclick={
+                                                    let current_page = current_page_display.clone();
+                                                    let per_page = per_page_display.clone();
+                                                    let total_items = total_items_display.clone();
+                                                    Callback::from(move |_| {
+                                                        if (*current_page * *per_page) < *total_items {
+                                                            current_page.set(*current_page + 1);
+                                                        }
+                                                    })
+                                                }
+                                                disabled={(*current_page_display * *per_page_display) >= *total_items}
+                                                class="px-3 py-2 border rounded-md disabled:opacity-50"
+                                            >
+                                                {"Next"}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             }
                         }
@@ -169,9 +228,20 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
     }
 }
 
-async fn load_videos() -> Result<Vec<Video>, String> {
+#[derive(Debug, Serialize, Deserialize)]
+struct VideosResponse {
+    videos: Vec<VideoMetadata>,
+    total: i64,
+    page: i64,
+    per_page: i64,
+}
+
+async fn load_videos(page: i64, per_page: i64) -> Result<VideosResponse, String> {
     let backend_url = "http://localhost:8000";
-    let url = format!("{}/admin/videos", backend_url);
+    let url = format!(
+        "{}/admin/videos?page={}&per_page={}",
+        backend_url, page, per_page
+    );
 
     let token = window()
         .and_then(|w| w.session_storage().ok())
@@ -187,7 +257,7 @@ async fn load_videos() -> Result<Vec<Video>, String> {
 
     if response.ok() {
         response
-            .json::<Vec<Video>>()
+            .json::<VideosResponse>()
             .await
             .map_err(|e| format!("JSON parse error: {}", e))
     } else {
@@ -197,7 +267,7 @@ async fn load_videos() -> Result<Vec<Video>, String> {
 
 async fn delete_video(video_id: &str) -> Result<(), String> {
     let backend_url = "http://localhost:8000";
-    let url = format!("{}/admin/videos/{}", backend_url, video_id);
+    let url = format!("{}/admin/video/{}", backend_url, video_id);
 
     let token = window()
         .and_then(|w| w.session_storage().ok())

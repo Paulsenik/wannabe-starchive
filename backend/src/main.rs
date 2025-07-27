@@ -5,10 +5,7 @@ extern crate rocket;
 use elasticsearch::indices::IndicesCreateParts;
 use elasticsearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
-    // Corrected import path for IndicesCreateRequest for elasticsearch v9.x
-    DeleteByQueryParts,
-    Elasticsearch,
-    SearchParts,
+    DeleteByQueryParts, DeleteParts, Elasticsearch, SearchParts,
 };
 use env_logger::Builder;
 use log::{error, info, LevelFilter};
@@ -31,7 +28,7 @@ use models::{Caption, SearchResult, VideoMetadata};
 // <--- ENSURED THIS IS CORRECT
 
 use crate::admin::{
-    admin_enqueue, admin_login, admin_stats, delete_queue_item_options, get_queue,
+    admin_enqueue, admin_login, admin_stats, delete_video_endpoint, get_queue, get_videos,
     remove_queue_item,
 };
 use crate::crawler::VideoQueue;
@@ -387,7 +384,8 @@ async fn rocket() -> _ {
                 get_queue,
                 admin_enqueue,
                 remove_queue_item,
-                delete_queue_item_options,
+                delete_video_endpoint,
+                get_videos,
             ],
         )
         .attach(cors)

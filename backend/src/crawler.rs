@@ -188,6 +188,7 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .map(|s| s == "true")
             .unwrap_or(false),
         crawl_date: chrono::Utc::now().to_rfc3339(),
+        video_id: video_id.to_string(),
     })
 }
 
@@ -206,6 +207,7 @@ pub async fn process_video_metadata(es_client: &Elasticsearch, video_id: &str) {
             tags: Vec::new(),
             has_captions: false,
             crawl_date: String::new(),
+            video_id: String::new(),
         }
     });
 
