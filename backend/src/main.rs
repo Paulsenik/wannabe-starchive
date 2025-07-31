@@ -1,4 +1,3 @@
-#![allow(unused_imports)] // Allow unused imports for now as we build out the project
 #[macro_use]
 extern crate rocket;
 
@@ -11,7 +10,6 @@ use env_logger::Builder;
 use log::{error, info, LevelFilter};
 use rocket::serde::{json::Json, Deserialize, Serialize};
 use rocket::{get, launch, post, routes, State};
-// Explicitly import CorsOptions and AllowedOrigins from rocket_cors
 use rocket_cors::{AllowedOrigins, CorsOptions};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -20,12 +18,10 @@ use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 mod admin;
-mod crawler; // We'll define this module for the YouTube crawler
+mod crawler;
 mod models;
-// We'll define data models here
 
 use models::{Caption, SearchResult, VideoMetadata};
-// <--- ENSURED THIS IS CORRECT
 
 use crate::admin::{
     admin_enqueue, admin_login, admin_stats, delete_video_endpoint, get_queue, get_videos,
@@ -34,16 +30,12 @@ use crate::admin::{
 use crate::crawler::VideoQueue;
 use crawler::crawl_youtube_video;
 
-// State struct to hold the Elasticsearch client and other shared resources
 pub struct AppState {
     pub es_client: Elasticsearch,
     pub scheduler: Mutex<JobScheduler>,
     pub video_queue: Arc<VideoQueue>,
 }
 
-// --- API Endpoints ---
-
-/// Root endpoint
 #[get("/")]
 async fn index() -> &'static str {
     "Welcome to the YouTube Caption Search Backend!"
@@ -55,11 +47,29 @@ fn build_search_query(query_string: &str, from: usize, size: usize) -> Value {
     json!({
         "size": size,
         "query": {
-            "match": {
-                "text": {
-                    "query": query_string,
-                    "fuzziness": "AUTO"
-                }
+            "bool": {
+                "should": [
+                    {
+                        "match": {
+                            "text": {
+                                "query": query_string,
+                                "boost": 3.0  // Highest priority for exact matches
+                            }
+                        }
+                    },
+                    {
+                        "match": {
+                            "text": {
+                                "query": query_string,
+                                "fuzziness": 1,  // Only 1 character difference allowed
+                                "prefix_length": 2,  // First 2 characters must match exactly
+                                "max_expansions": 10,  // Limit expansions for performance
+                                "boost": 1.5  // Medium priority for minor typos
+                            }
+                        }
+                    }
+                ],
+                "minimum_should_match": 1
             }
         },
         "collapse": {
@@ -258,8 +268,6 @@ async fn list_videos(state: &State<AppState>) -> Json<Vec<String>> {
     }
 }
 
-// --- Rocket Launch ---
-
 async fn create_es_index(es_client: &Elasticsearch) {
     let create_index_body = json!({
         "mappings": {
@@ -315,13 +323,10 @@ async fn rocket() -> _ {
 
     create_es_index(&es_client).await;
 
-    // Initialize job scheduler for the crawler
     let scheduler = JobScheduler::new().await.unwrap();
-    let es_client_clone = es_client.clone(); // Clone client for the job
+    let es_client_clone = es_client.clone();
 
-    // Add a cron job to crawl YouTube captions every 30 minutes (for example)
-    // In a real application, you'd want a more sophisticated way to get video IDs.
-    // For now, we'll use a hardcoded list in the crawler module.
+
     let video_queue_clone = video_queue.clone();
     let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
         let es_client_for_job = es_client_clone.clone();
@@ -339,7 +344,6 @@ async fn rocket() -> _ {
     scheduler.start().await.unwrap();
     info!("Crawler scheduler started.");
 
-    // Set up CORS for Rocket
     use rocket::http::Method;
     use rocket_cors::AllowedHeaders;
 
