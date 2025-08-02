@@ -1,0 +1,104 @@
+use anyhow::Result;
+use elasticsearch::{
+    http::transport::{SingleNodeConnectionPool, TransportBuilder},
+    Elasticsearch,
+};
+use env_logger::Builder;
+use log::{info, LevelFilter};
+use rocket::http::Method;
+use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio_cron_scheduler::{Job, JobScheduler};
+
+use crate::services::crawler::{crawl_youtube_video, VideoQueue};
+use crate::services::elasticsearch_service::create_es_index;
+use crate::AppState;
+
+pub fn init_logger() {
+    Builder::new().filter_level(LevelFilter::Info).init();
+    info!("Starting Rocket backend...");
+}
+
+pub fn load_environment() {
+    dotenv::dotenv().ok();
+}
+
+pub fn create_elasticsearch_client() -> Result<Elasticsearch> {
+    let es_url =
+        std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    info!("Connecting to Elasticsearch at: {es_url}");
+
+    let transport =
+        TransportBuilder::new(SingleNodeConnectionPool::new(es_url.parse()?)).build()?;
+
+    Ok(Elasticsearch::new(transport))
+}
+
+pub async fn setup_scheduler(
+    es_client: Elasticsearch,
+    video_queue: Arc<VideoQueue>,
+) -> Result<JobScheduler> {
+    let scheduler = JobScheduler::new().await?;
+    let es_client_clone = es_client.clone();
+    let video_queue_clone = video_queue.clone();
+
+    let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
+        let es_client_for_job = es_client_clone.clone();
+        let queue = video_queue_clone.clone();
+        Box::pin(async move {
+            if queue.get_size() == 0 {
+                return;
+            }
+            crawl_youtube_video(&es_client_for_job, &queue).await;
+        })
+    })?;
+
+    scheduler.add(crawl_job).await?;
+    scheduler.start().await?;
+    info!("Crawler scheduler started.");
+
+    Ok(scheduler)
+}
+
+pub async fn create_app_state() -> Result<AppState> {
+    let es_client = create_elasticsearch_client()?;
+    let video_queue = Arc::new(VideoQueue::new());
+
+    create_es_index(&es_client).await;
+
+    let scheduler = setup_scheduler(es_client.clone(), video_queue.clone()).await?;
+
+    Ok(AppState {
+        es_client,
+        scheduler: Mutex::new(scheduler),
+        video_queue,
+    })
+}
+
+pub fn create_cors() -> Result<rocket_cors::Cors> {
+    let cors = CorsOptions::default()
+        .allowed_origins(AllowedOrigins::some_exact(&["http://localhost:8080"]))
+        .allowed_methods(
+            vec![
+                Method::Get,
+                Method::Post,
+                Method::Put,
+                Method::Delete,
+                Method::Options,
+            ]
+            .into_iter()
+            .map(From::from)
+            .collect(),
+        )
+        .allowed_headers(AllowedHeaders::some(&[
+            "Authorization",
+            "Accept",
+            "Content-Type",
+        ]))
+        .allow_credentials(true)
+        .to_cors()
+        .map_err(|e| anyhow::anyhow!("Failed to create CORS options: {}", e))?;
+
+    Ok(cors)
+}

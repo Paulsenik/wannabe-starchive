@@ -1,24 +1,11 @@
-use crate::models::VideoMetadata;
-use crate::Caption;
+use crate::models::{Caption, QueueItem, VideoMetadata};
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QueueItem {
-    pub id: String,
-    pub url: String,
-    pub video_id: String,
-    pub status: String,
-    pub added_at: String,
-    pub processed_at: Option<String>,
-    pub error_message: Option<String>,
-}
 
 pub struct VideoQueue {
     queue: Arc<Mutex<VecDeque<QueueItem>>>,
@@ -72,8 +59,6 @@ impl VideoQueue {
 
     pub fn mark_completed(&self, item_id: &str) {
         if let Ok(mut queue) = self.queue.lock() {
-            // Find and update the item if it exists in the queue
-            // Note: In practice, completed items might be moved to a separate collection
             for item in queue.iter_mut() {
                 if item.id == item_id {
                     item.status = "completed".to_string();
@@ -211,7 +196,6 @@ pub async fn process_video_metadata(es_client: &Elasticsearch, video_id: &str) {
         }
     });
 
-    // First index video metadata
     match es_client
         .index(IndexParts::IndexId("youtube_videos", &video_id))
         .body(json!(metadata))
@@ -261,7 +245,6 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
         Ok(transcript) => {
             let mut captions_to_index: Vec<Caption> = Vec::new();
 
-            // Then index captions
             for entry in transcript {
                 captions_to_index.push(Caption {
                     video_id: video_id.to_string(),
@@ -275,7 +258,6 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
                 captions_to_index.len()
             );
 
-            // Index captions into Elasticsearch
             for caption in captions_to_index {
                 let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
                 match es_client
@@ -319,7 +301,6 @@ pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQ
         process_video_metadata(es_client, &item.video_id).await;
         process_video_captions(es_client, &item.video_id).await;
 
-        // Mark as completed
         video_queue.mark_completed(&item.id);
     }
     info!("YouTube caption crawl completed.");
