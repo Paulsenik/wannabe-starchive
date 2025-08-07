@@ -10,7 +10,8 @@ pub async fn search_captions(
     from: usize,
     size: usize,
 ) -> Result<Vec<SearchResult>> {
-    let search_body = build_search_query(query_string, from, size);
+    let search_body = build_exact_search_query(query_string, from, size);
+    //let search_body = build_search_query(query_string, from, size);
 
     let response = es_client
         .search(SearchParts::Index(&["youtube_captions"]))
@@ -58,6 +59,34 @@ fn build_search_query(query_string: &str, from: usize, size: usize) -> Value {
                     }
                 ],
                 "minimum_should_match": 1
+            }
+        },
+        "collapse": {
+            "field": "video_id",
+            "inner_hits": {
+                "name": "captions",
+                "size": 10000
+            }
+        },
+        "sort": ["_score"],
+        "from": from,
+        "_source": ["video_id", "text", "start_time", "end_time"],
+        "highlight": {
+            "fields": {
+                "text": {}
+            }
+        }
+    })
+}
+
+fn build_exact_search_query(query_string: &str, from: usize, size: usize) -> Value {
+    json!({
+        "size": size,
+        "query": {
+            "match_phrase": {
+                "text": {
+                    "query": query_string
+                }
             }
         },
         "collapse": {
