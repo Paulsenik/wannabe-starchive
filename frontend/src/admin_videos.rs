@@ -130,6 +130,7 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                 (*videos).iter().map(|video| {
                                                     let video_id = video.video_id.clone();
                                                     let on_delete = on_delete_video.clone();
+                                                    let channel_link = format!("https://www.youtube.com/channel/{}", &video.channel_id);
 
                                                     html! {
                                                         <tr key={video.video_id.clone()}>
@@ -137,7 +138,7 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                                 <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/watch?v={}", video.video_id)} class="text-blue-600 hover:underline">{&video.title}</a></div>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {&video.channel_name}
+                                                                <a href={format!("https://www.youtube.com/channel/{}",&video.channel_id)} class="text-blue-600 hover:underline">{&video.channel_name}</a>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {format_iso8601_date(&video.upload_date)}

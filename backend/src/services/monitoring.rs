@@ -1,8 +1,9 @@
-use crate::models::MonitoredChannel;
+use crate::models::{MonitoredChannel, MonitoredChannelModify};
 use crate::services::crawler::VideoQueue;
-use elasticsearch::{Elasticsearch, SearchParts};
+use elasticsearch::{DeleteParts, Elasticsearch, SearchParts};
 use log::{error, info};
 use reqwest::Client;
+use rocket::serde::json::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -42,6 +43,62 @@ pub async fn setup_channel_monitoring(
     Ok(())
 }
 
+pub async fn get_monitored_channels_list() -> Vec<MonitoredChannel> {
+    MONITORED_CHANNELS.read().await.clone()
+}
+
+pub async fn remove_monitored_channel(
+    channel_id: &str,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    info!("Removing monitored channel: {}", channel_id);
+
+    // Remove from Elasticsearch
+    es_client
+        .delete(DeleteParts::IndexId("monitored_channels", channel_id))
+        .send()
+        .await?;
+
+    // Remove from in-memory list
+    let mut channels = MONITORED_CHANNELS.write().await;
+    channels.retain(|channel| channel.channel_id != channel_id);
+
+    info!("Successfully removed monitored channel");
+    Ok(())
+}
+
+pub async fn add_monitored_channel(
+    channel: MonitoredChannelModify,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    info!("Adding new monitored channel: {}", channel.channel_name);
+
+    let new_channel = MonitoredChannel {
+        channel_id: channel.channel_id.clone(),
+        channel_name: channel.channel_name,
+        last_video_id: None,
+        active: true,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    // Add to Elasticsearch with channel_id as document ID
+    es_client
+        .index(elasticsearch::IndexParts::IndexId(
+            "monitored_channels",
+            &channel.channel_id,
+        ))
+        .body(json!(new_channel))
+        .send()
+        .await?;
+
+    // Add to in-memory list
+    let mut channels = MONITORED_CHANNELS.write().await;
+    channels.push(new_channel);
+
+    info!("Successfully added new monitored channel");
+    Ok(())
+}
+
 async fn load_monitored_channels(es_client: &Elasticsearch) {
     info!("Loading monitored channels from Elasticsearch...");
 
@@ -51,7 +108,7 @@ async fn load_monitored_channels(es_client: &Elasticsearch) {
             "query": {
                 "match_all": {}
             },
-            "size": 100
+            "size": 1000
         }))
         .send()
         .await;
@@ -69,14 +126,12 @@ async fn load_monitored_channels(es_client: &Elasticsearch) {
                         if let Ok(channel) =
                             serde_json::from_value::<MonitoredChannel>(source.clone().into())
                         {
-                            if channel.active {
-                                channels.push(channel);
-                            }
+                            channels.push(channel);
                         }
                     }
                 }
 
-                info!("Loaded {} active monitored channels", channels.len());
+                info!("Loaded {} monitored channels", channels.len());
             }
         }
         Err(e) => {
@@ -91,93 +146,81 @@ async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &Video
     let channels = MONITORED_CHANNELS.read().await;
 
     for channel in channels.iter() {
-        if !channel.active {
-            continue;
-        }
-
         info!(
-            "Checking channel: {} ({})",
-            channel.channel_name, channel.channel_id
+            "Checking channel: {} ({}) - active: {}",
+            channel.channel_name, channel.channel_id, channel.active
         );
 
-        // Get the channel's upload playlist
-        match get_channel_uploads_playlist_id(&channel.channel_id).await {
-            Ok(playlist_id) => {
-                // Check for new videos in the playlist
-                match check_playlist_for_new_videos(&playlist_id, channel).await {
-                    Ok(new_video_urls) => {
-                        for url in new_video_urls.clone() {
-                            info!("Found new video for monitoring: {}", url);
-                            video_queue.add_video(url);
-                        }
+        if channel.active {
+            check_channel_for_new_videos(&channel.channel_id, &es_client, &video_queue).await;
+        }
+    }
+}
 
-                        // Update the last_video_id if we found new videos
-                        if !new_video_urls.is_empty() {
-                            // You might want to update the channel's last_video_id in Elasticsearch here
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to check playlist for channel {}: {}",
-                            channel.channel_id, e
-                        );
-                    }
+pub async fn check_channel_for_new_videos(
+    channel_id: &str,
+    es_client: &Elasticsearch,
+    video_queue: &VideoQueue,
+) {
+    match get_channel_playlist_id(&channel_id).await {
+        Ok(playlist_id) => {
+            // Check for new videos in the playlist
+            check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue).await;
+        }
+        Err(e) => {
+            error!(
+                "Failed to get upload playlist for channel {}: {}",
+                channel_id, e
+            );
+        }
+    }
+}
+
+pub async fn check_playlist_for_new_videos(
+    playlist_id: &str,
+    es_client: &Elasticsearch,
+    video_queue: &VideoQueue,
+) {
+    let all_playlist_videos = match fetch_all_playlist_videos(playlist_id).await {
+        Ok(videos) => videos,
+        Err(e) => {
+            error!("Failed to fetch playlist videos: {}", e);
+            return;
+        }
+    };
+
+    info!("Found {} videos in playlist", all_playlist_videos.len());
+
+    for video_id in all_playlist_videos {
+        // Check if video already exists in Elasticsearch
+
+        let search_response = es_client
+            .get(elasticsearch::GetParts::IndexId(
+                "youtube_videos",
+                &video_id,
+            ))
+            .send()
+            .await;
+
+        match search_response {
+            Ok(response) => {
+                // Video doesn't exist, add to queue
+                if !response.status_code().is_success() {
+                    //video_queue.add_video(video_id.clone());
+                    info!("Added video to queue: {}", video_id);
+                } else {
+                    info!("Video already exists: {}", video_id);
                 }
             }
             Err(e) => {
-                error!(
-                    "Failed to get upload playlist for channel {}: {}",
-                    channel.channel_id, e
-                );
+                error!("Failed to check video existence: {}", e);
             }
         }
     }
-}
-
-async fn check_playlist_for_new_videos(
-    playlist_id: &str,
-    channel: &MonitoredChannel,
-) -> Result<Vec<String>, anyhow::Error> {
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
-    let url = format!(
-        "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={}&maxResults=10&key={}",
-        playlist_id, api_key
-    );
-
-    let client = reqwest::Client::new();
-    let response: Value = client.get(&url).send().await?.json().await?;
-
-    let mut new_videos = Vec::new();
-
-    if let Some(items) = response["items"].as_array() {
-        let mut found_last_processed = channel.last_video_id.is_none();
-
-        for item in items {
-            if let Some(video_id) = item["snippet"]["resourceId"]["videoId"].as_str() {
-                // If we haven't found the last processed video yet, check if this is it
-                if !found_last_processed {
-                    if Some(video_id.to_string()) == channel.last_video_id {
-                        found_last_processed = true;
-                    }
-                    continue;
-                }
-
-                // This is a new video
-                let video_url = format!("https://www.youtube.com/watch?v={}", video_id);
-                new_videos.push(video_url);
-            }
-        }
-    }
-
-    Ok(new_videos)
-}
-
-pub async fn get_monitored_channels_list() -> Vec<MonitoredChannel> {
-    MONITORED_CHANNELS.read().await.clone()
 }
 
 // returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
-pub async fn get_channel_uploads_playlist_id(channel_id: &str) -> Result<String, anyhow::Error> {
+pub async fn get_channel_playlist_id(channel_id: &str) -> Result<String, anyhow::Error> {
     let client = Client::new();
     let api_key = std::env::var("YOUTUBE_API_KEY")?;
 
@@ -198,4 +241,50 @@ pub async fn get_channel_uploads_playlist_id(channel_id: &str) -> Result<String,
         .ok_or_else(|| anyhow::anyhow!("No uploads playlist found"))?;
 
     Ok(uploads_playlist_id.to_string())
+}
+
+// Returns list of YT-Videos of a given playlist.
+pub async fn fetch_all_playlist_videos(
+    playlist_id: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let mut all_video_ids = Vec::new();
+    let mut next_page_token: Option<String> = None;
+
+    loop {
+        // https://developers.google.com/youtube/v3/docs/playlistItems
+        let mut url = format!(
+            "https://www.googleapis.com/youtube/v3/playlistItems?playlistId={}&key={}&part=snippet",
+            playlist_id, api_key
+        );
+
+        if let Some(token) = &next_page_token {
+            url.push_str(&format!("&pageToken={}", token));
+        }
+
+        let response = client
+            .get(&url)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        if let Some(items) = response["items"].as_array() {
+            for item in items {
+                if let Some(video_id) = item["snippet"]["resourceId"]["videoId"].as_str() {
+                    all_video_ids.push(video_id.to_string());
+                }
+            }
+        }
+
+        // Check for next page
+        if let Some(token) = response["nextPageToken"].as_str() {
+            next_page_token = Some(token.to_string());
+        } else {
+            break; // No more pages
+        }
+    }
+
+    Ok(all_video_ids)
 }

@@ -1,6 +1,6 @@
 mod admin;
 mod admin_captions;
-mod admin_channels;
+mod admin_monitor;
 mod admin_queue;
 mod admin_videos;
 mod models;

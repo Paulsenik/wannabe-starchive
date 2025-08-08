@@ -3,7 +3,7 @@ use yew_router::prelude::*;
 
 use crate::admin::AdminPage;
 use crate::admin_captions::AdminCaptionsPage;
-use crate::admin_channels::AdminChannelsPage;
+use crate::admin_monitor::AdminChannelsPage;
 use crate::admin_queue::AdminQueuePage;
 use crate::admin_videos::AdminVideosPage;
 use crate::models::SearchResult;
