@@ -11,6 +11,10 @@ mod config;
 mod models;
 mod services;
 
+use crate::api::{
+    add_monitored_channel, get_channel_upload_playlist, get_monitored_channels,
+    get_playlist_videos, remove_monitored_channel,
+};
 use api::{
     admin_enqueue, admin_login, admin_stats, delete_video_endpoint, get_queue, get_video_metadata,
     get_videos, list_videos, remove_queue_item, search_captions,
@@ -39,6 +43,16 @@ async fn rocket() -> _ {
         .manage(app_state)
         .mount("/search", routes![search_captions])
         .mount("/video", routes![list_videos, get_video_metadata])
+        .mount(
+            "/monitor",
+            routes![
+                add_monitored_channel,
+                get_monitored_channels,
+                remove_monitored_channel,
+                get_playlist_videos,
+                get_channel_upload_playlist,
+            ],
+        )
         .mount(
             "/admin",
             routes![

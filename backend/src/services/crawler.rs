@@ -305,3 +305,76 @@ pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQ
     }
     info!("YouTube caption crawl completed.");
 }
+
+// Returns list of YT-Videos of a given playlist.
+
+pub async fn fetch_all_playlist_videos(
+    playlist_id: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let mut all_video_ids = Vec::new();
+    let mut next_page_token: Option<String> = None;
+
+    loop {
+        // https://developers.google.com/youtube/v3/docs/playlistItems
+        let mut url = format!(
+            "https://www.googleapis.com/youtube/v3/playlistItems?playlistId={}&key={}&part=snippet",
+            playlist_id, api_key
+        );
+
+        if let Some(token) = &next_page_token {
+            url.push_str(&format!("&pageToken={}", token));
+        }
+
+        let response = client
+            .get(&url)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        if let Some(items) = response["items"].as_array() {
+            for item in items {
+                if let Some(video_id) = item["snippet"]["resourceId"]["videoId"].as_str() {
+                    all_video_ids.push(video_id.to_string());
+                }
+            }
+        }
+
+        // Check for next page
+        if let Some(token) = response["nextPageToken"].as_str() {
+            next_page_token = Some(token.to_string());
+        } else {
+            break; // No more pages
+        }
+    }
+
+    Ok(all_video_ids)
+}
+
+// returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
+pub async fn get_channel_uploads_playlist_id(
+    channel_id: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let client = Client::new();
+    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+
+    let url = format!(
+        "https://www.googleapis.com/youtube/v3/channels?id={}&key={}&part=contentDetails",
+        channel_id, api_key
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    let uploads_playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        .as_str()
+        .ok_or("No uploads playlist found")?;
+
+    Ok(uploads_playlist_id.to_string())
+}

@@ -120,3 +120,23 @@ pub struct VideoMetadata {
     pub tags: Vec<String>,
     pub video_id: String,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MonitoredChannel {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub last_video_id: Option<String>, // Track the latest video processed
+    pub check_frequency: String,       // Cron expression
+    pub active: bool,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MonitoredPlaylist {
+    pub playlist_id: String,
+    pub playlist_name: String,
+    pub last_video_id: Option<String>,
+    pub check_frequency: String,
+    pub active: bool,
+    pub created_at: String,
+}
