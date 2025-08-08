@@ -2,7 +2,7 @@ use crate::models::{Caption, QueueItem, VideoMetadata};
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
@@ -25,12 +25,11 @@ impl VideoQueue {
         }
     }
 
-    pub fn add_video(&self, url: String, video_id: String) -> String {
+    pub fn add_video(&self, video_id: String) -> String {
         if let Ok(mut queue) = self.queue.lock() {
             let item_id = format!("{}_{}", chrono::Utc::now().timestamp(), video_id);
             let item = QueueItem {
                 id: item_id.clone(),
-                url,
                 video_id,
                 status: "pending".to_string(),
                 added_at: chrono::Utc::now().to_rfc3339(),
@@ -351,30 +350,4 @@ pub async fn fetch_all_playlist_videos(
     }
 
     Ok(all_video_ids)
-}
-
-// returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
-pub async fn get_channel_uploads_playlist_id(
-    channel_id: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let client = Client::new();
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
-
-    let url = format!(
-        "https://www.googleapis.com/youtube/v3/channels?id={}&key={}&part=contentDetails",
-        channel_id, api_key
-    );
-
-    let response = client
-        .get(&url)
-        .send()
-        .await?
-        .json::<serde_json::Value>()
-        .await?;
-
-    let uploads_playlist_id = response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
-        .as_str()
-        .ok_or("No uploads playlist found")?;
-
-    Ok(uploads_playlist_id.to_string())
 }

@@ -8,7 +8,6 @@ use yew_router::prelude::*;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct QueueItem {
     pub id: String,
-    pub url: String,
     pub status: String,
     pub added_at: String,
     pub processed_at: Option<String>,
@@ -213,7 +212,6 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
                                     <table class="min-w-full bg-white border border-gray-300">
                                         <thead class="bg-gray-50">
                                             <tr>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"URL"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Status"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Added"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Processed"}</th>
@@ -228,13 +226,6 @@ pub fn admin_queue_page(_props: &AdminQueuePageProps) -> Html {
 
                                                     html! {
                                                         <tr key={item.id.clone()}>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                <div class="max-w-xs truncate">
-                                                                    <a href={item.url.clone()} target="_blank" class="text-blue-600 hover:underline">
-                                                                        {&item.url}
-                                                                    </a>
-                                                                </div>
-                                                            </td>
                                                             <td class="px-6 py-4 whitespace-nowrap">
                                                                 <span class={format!("px-2 inline-flex text-xs leading-5 font-semibold rounded-full {}",
                                                                     match item.status.as_str() {

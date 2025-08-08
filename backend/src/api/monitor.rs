@@ -1,7 +1,6 @@
 use crate::models::{MonitoredChannel, VideoMetadata};
-use crate::services::crawler::{
-    fetch_all_playlist_videos, get_channel_uploads_playlist_id, VideoQueue,
-};
+use crate::services::crawler::{fetch_all_playlist_videos, VideoQueue};
+use crate::services::monitoring::get_channel_uploads_playlist_id;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{delete, get, post, State};

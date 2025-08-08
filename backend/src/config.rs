@@ -13,6 +13,7 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::services::crawler::{crawl_youtube_video, VideoQueue};
 use crate::services::elasticsearch_service::create_es_index;
+use crate::services::monitoring::setup_channel_monitoring;
 use crate::AppState;
 
 pub fn init_logger() {
@@ -68,6 +69,12 @@ pub async fn create_app_state() -> Result<AppState> {
     create_es_index(&es_client).await;
 
     let scheduler = setup_scheduler(es_client.clone(), video_queue.clone()).await?;
+
+    // Setup channel monitoring
+    let es_client_arc = Arc::new(es_client.clone());
+    setup_channel_monitoring(es_client_arc, video_queue.clone())
+        .await
+        .expect("Monitoring setup failed.");
 
     Ok(AppState {
         es_client,

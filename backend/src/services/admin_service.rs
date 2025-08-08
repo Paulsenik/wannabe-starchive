@@ -56,7 +56,7 @@ pub async fn enqueue_video(
     let video_id =
         extract_youtube_video_id(url).ok_or_else(|| anyhow::anyhow!("Invalid YouTube URL"))?;
 
-    video_queue.add_video(url.to_string(), video_id.clone());
+    video_queue.add_video(video_id.clone());
 
     Ok(AdminEnqueueResponse {
         success: true,

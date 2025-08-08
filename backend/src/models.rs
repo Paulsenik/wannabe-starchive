@@ -53,7 +53,6 @@ pub struct AdminVideoListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueueItem {
     pub id: String,
-    pub url: String,
     pub video_id: String,
     pub status: String,
     pub added_at: String,
