@@ -1,24 +1,19 @@
-use crate::models::{MonitoredChannel, VideoMetadata};
-use crate::services::crawler::VideoQueue;
+use crate::models::MonitoredChannel;
 use crate::services::monitoring_service::{
     add_monitored_channel, check_channel_for_new_videos, check_playlist_for_new_videos,
-    fetch_all_playlist_videos, get_channel_playlist_id, get_monitored_channels_list,
-    remove_monitored_channel, set_active,
+    get_monitored_channels_list, remove_monitored_channel, set_active,
 };
 use crate::AppState;
-use elasticsearch::Elasticsearch;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{delete, get, post, State};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NewChannel {
     input: String,
 }
 
-// Add to routes
 #[post("/channel", data = "<channel>")]
 pub async fn add_channel(
     channel: Json<NewChannel>,

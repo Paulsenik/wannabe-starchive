@@ -4,9 +4,11 @@ use elasticsearch::{
     Elasticsearch,
 };
 use env_logger::Builder;
+use lazy_static::lazy_static;
 use log::{info, LevelFilter};
 use rocket::http::Method;
 use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
+use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -15,6 +17,19 @@ use crate::services::crawler::{crawl_youtube_video, VideoQueue};
 use crate::services::elasticsearch_service::create_es_index;
 use crate::services::monitoring_service::setup_channel_monitoring;
 use crate::AppState;
+
+lazy_static! {
+    pub static ref YOUTUBE_API_KEY: String =
+        env::var("YOUTUBE_API_KEY").expect("YOUTUBE_API_KEY environment variable must be set");
+    pub static ref ADMIN_TOKEN: String =
+        env::var("ADMIN_TOKEN").expect("ADMIN_TOKEN environment variable must be set");
+    pub static ref ELASTICSEARCH_URL: String =
+        env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    pub static ref CRAWL_BURST_MAX: i32 = env::var("CRAWL_BURST_MAX")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse::<i32>()
+        .unwrap_or(1);
+}
 
 pub fn init_logger() {
     Builder::new().filter_level(LevelFilter::Info).init();
@@ -26,8 +41,7 @@ pub fn load_environment() {
 }
 
 pub fn create_elasticsearch_client() -> Result<Elasticsearch> {
-    let es_url =
-        std::env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    let es_url = &*ELASTICSEARCH_URL;
     info!("Connecting to Elasticsearch at: {es_url}");
 
     let transport =
@@ -43,10 +57,7 @@ pub async fn setup_scheduler(
     let scheduler = JobScheduler::new().await?;
     let es_client_clone = es_client.clone();
     let video_queue_clone = video_queue.clone();
-    let craw_burst_max = std::env::var("CRAWL_BURST_MAX")
-        .unwrap_or_else(|_| "1".to_string())
-        .parse::<i32>()
-        .unwrap_or(1);
+    let craw_burst_max = CRAWL_BURST_MAX.clone();
 
     let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
         let es_client_for_job = es_client_clone.clone();
@@ -74,8 +85,8 @@ pub async fn create_app_state() -> Result<AppState> {
 
     let scheduler = setup_scheduler(es_client.clone(), video_queue.clone()).await?;
 
-    // Setup channel monitoring
     let es_client_arc = Arc::new(es_client.clone());
+
     setup_channel_monitoring(es_client_arc, video_queue.clone())
         .await
         .expect("Monitoring setup failed.");

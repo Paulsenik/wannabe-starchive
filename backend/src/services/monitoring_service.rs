@@ -1,9 +1,9 @@
+use crate::config::YOUTUBE_API_KEY;
 use crate::models::MonitoredChannel;
 use crate::services::crawler::VideoQueue;
 use elasticsearch::{DeleteParts, Elasticsearch, SearchParts};
 use log::{error, info};
 use reqwest::Client;
-use rocket::serde::json::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -53,13 +53,11 @@ pub async fn remove_monitored_channel(
 ) -> Result<(), anyhow::Error> {
     info!("Removing monitored channel: {}", channel_id);
 
-    // Remove from Elasticsearch
     es_client
         .delete(DeleteParts::IndexId("monitored_channels", channel_id))
         .send()
         .await?;
 
-    // Remove from in-memory list
     let mut channels = MONITORED_CHANNELS.write().await;
     channels.retain(|channel| channel.channel_id != channel_id);
 
@@ -69,7 +67,7 @@ pub async fn remove_monitored_channel(
 
 async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow::Error> {
     let client = Client::new();
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let api_key = &*YOUTUBE_API_KEY;
 
     // Extract channel ID from different URL formats
     let channel_id = if input.contains("/channel/") {
@@ -143,7 +141,6 @@ pub async fn add_monitored_channel(
         }
     }
 
-    // Add to Elasticsearch with channel_id as document ID
     es_client
         .index(elasticsearch::IndexParts::IndexId(
             "monitored_channels",
@@ -158,7 +155,6 @@ pub async fn add_monitored_channel(
         new_channel.channel_name, new_channel.channel_id
     );
 
-    // Add to in-memory list
     let mut channels = MONITORED_CHANNELS.write().await;
     channels.push(new_channel);
     Ok(())
@@ -220,6 +216,7 @@ async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &Video
             check_channel_for_new_videos(&channel.channel_id, &es_client, &video_queue).await;
         }
     }
+    info!("Finished checking monitored channels!");
 }
 
 pub async fn check_channel_for_new_videos(
@@ -229,7 +226,6 @@ pub async fn check_channel_for_new_videos(
 ) {
     match get_channel_playlist_id(&channel_id).await {
         Ok(playlist_id) => {
-            // Check for new videos in the playlist
             check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue).await;
         }
         Err(e) => {
@@ -256,9 +252,8 @@ pub async fn check_playlist_for_new_videos(
 
     info!("Found {} videos in playlist", all_playlist_videos.len());
 
+    let mut added_videos = 0;
     for video_id in all_playlist_videos {
-        // Check if video already exists in Elasticsearch
-
         let search_response = es_client
             .get(elasticsearch::GetParts::IndexId(
                 "youtube_videos",
@@ -271,8 +266,8 @@ pub async fn check_playlist_for_new_videos(
             Ok(response) => {
                 // Video doesn't exist, add to queue
                 if !response.status_code().is_success() {
-                    // TODO - remove when needed
                     video_queue.add_video(video_id.clone());
+                    added_videos += 1;
                     info!("Added video to queue: {}", video_id);
                 } else {
                     info!("Video already exists: {}", video_id);
@@ -283,12 +278,13 @@ pub async fn check_playlist_for_new_videos(
             }
         }
     }
+    info!("Enqueued {} videos from Playlist", added_videos);
 }
 
 // returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
 pub async fn get_channel_playlist_id(channel_id: &str) -> Result<String, anyhow::Error> {
     let client = Client::new();
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let api_key = &*YOUTUBE_API_KEY;
 
     let url = format!(
         "https://www.googleapis.com/youtube/v3/channels?id={}&key={}&part=contentDetails",
@@ -314,7 +310,7 @@ pub async fn fetch_all_playlist_videos(
     playlist_id: &str,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let client = Client::new();
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let api_key = &*YOUTUBE_API_KEY;
     let mut all_video_ids = Vec::new();
     let mut next_page_token: Option<String> = None;
 
@@ -373,7 +369,6 @@ pub async fn set_active(
         .send()
         .await?;
 
-    // Update in-memory list
     let mut channels = MONITORED_CHANNELS.write().await;
     if let Some(channel) = channels.iter_mut().find(|c| c.channel_id == channel_id) {
         channel.active = active;

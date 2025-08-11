@@ -32,6 +32,7 @@ pub async fn search_captions(
     Ok(results)
 }
 
+#[allow(dead_code)]
 fn build_search_query(query_string: &str, from: usize, size: usize) -> Value {
     json!({
         "size": size,

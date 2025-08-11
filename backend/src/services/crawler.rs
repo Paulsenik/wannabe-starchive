@@ -1,8 +1,9 @@
+use crate::config::YOUTUBE_API_KEY;
 use crate::models::{Caption, QueueItem, VideoMetadata};
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
@@ -110,7 +111,7 @@ impl VideoQueue {
 
 async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn std::error::Error>> {
     let client = Client::new();
-    let api_key = std::env::var("YOUTUBE_API_KEY")?;
+    let api_key = &*YOUTUBE_API_KEY;
 
     // Documentation: https://developers.google.com/youtube/v3/docs/videos
     let url = format!(
@@ -308,7 +309,7 @@ pub async fn crawl_youtube_video(
         video_queue.mark_completed(&item.id);
 
         count += 1;
-        if (count >= maxcount) {
+        if count >= maxcount {
             info!("YouTube caption crawl maxcount reached. ");
             break;
         }

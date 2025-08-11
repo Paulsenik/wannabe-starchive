@@ -1,5 +1,6 @@
 // Add these to your existing models.rs file
 
+use crate::config::ADMIN_TOKEN;
 use rocket::request::{FromRequest, Outcome, Request};
 use rocket::serde::{Deserialize, Serialize};
 
@@ -73,10 +74,7 @@ impl<'r> FromRequest<'r> for AdminToken {
 
         match token {
             Some(t) => {
-                let expected_token = std::env::var("ADMIN_TOKEN")
-                    .unwrap_or_else(|_| "your-secret-admin-token".to_string());
-
-                if t == expected_token {
+                if t == &*ADMIN_TOKEN {
                     Outcome::Success(AdminToken(t.to_string()))
                 } else {
                     Outcome::Error((rocket::http::Status::Unauthorized, "Invalid token"))

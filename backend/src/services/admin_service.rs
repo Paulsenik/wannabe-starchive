@@ -1,20 +1,16 @@
-use anyhow::Result;
-use elasticsearch::{DeleteByQueryParts, DeleteParts, Elasticsearch, SearchParts};
-use serde_json::{json, Value};
-use std::sync::Arc;
-
+use crate::config::ADMIN_TOKEN;
 use crate::models::{
     AdminEnqueueResponse, AdminLoginResponse, AdminQueueResponse, AdminStats,
     AdminVideoListResponse, VideoMetadata,
 };
 use crate::services::crawler::VideoQueue;
-
-const ADMIN_TOKEN: &str = "your-secret-admin-token"; // In production, use env variable
+use anyhow::Result;
+use elasticsearch::{DeleteByQueryParts, DeleteParts, Elasticsearch, SearchParts};
+use serde_json::{json, Value};
+use std::sync::Arc;
 
 pub async fn authenticate_admin(token: &str) -> Result<AdminLoginResponse> {
-    let expected_token = std::env::var("ADMIN_TOKEN").unwrap_or_else(|_| ADMIN_TOKEN.to_string());
-
-    if token == expected_token {
+    if token == &*ADMIN_TOKEN {
         Ok(AdminLoginResponse {
             success: true,
             message: "Authentication successful".to_string(),
@@ -70,7 +66,6 @@ pub async fn remove_from_queue(video_queue: &Arc<VideoQueue>, id: &str) -> Resul
 }
 
 pub async fn delete_video(es_client: &Elasticsearch, video_id: &str) -> Result<()> {
-    // Delete from youtube_videos index
     let delete_video_response = es_client
         .delete(DeleteParts::IndexId("youtube_videos", video_id))
         .send()
