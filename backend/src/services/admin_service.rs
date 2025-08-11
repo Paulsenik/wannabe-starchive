@@ -4,6 +4,7 @@ use crate::models::{
     AdminVideoListResponse, VideoMetadata,
 };
 use crate::services::crawler::VideoQueue;
+use crate::services::monitoring_service::get_monitored_channels_list;
 use anyhow::Result;
 use elasticsearch::{DeleteByQueryParts, DeleteParts, Elasticsearch, SearchParts};
 use serde_json::{json, Value};
@@ -23,15 +24,24 @@ pub async fn authenticate_admin(token: &str) -> Result<AdminLoginResponse> {
     }
 }
 
-pub async fn get_admin_stats(es_client: &Elasticsearch) -> Result<AdminStats> {
+pub async fn get_admin_stats(
+    es_client: &Elasticsearch,
+    video_queue: &VideoQueue,
+) -> Result<AdminStats> {
     let total_videos = get_index_count(es_client, "youtube_videos").await;
     let total_captions = get_index_count(es_client, "youtube_captions").await;
     let last_crawl_time = get_last_crawl_time(es_client).await;
+
+    let channels = get_monitored_channels_list(es_client).await;
+    let active_monitors = channels.iter().filter(|c| c.active).count() as i32;
+    let queue_size = video_queue.get_size();
 
     Ok(AdminStats {
         total_videos,
         total_captions,
         last_crawl_time,
+        active_monitors,
+        queue_size,
     })
 }
 

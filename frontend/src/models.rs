@@ -26,10 +26,10 @@ pub struct SearchResult {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct MonitoredChannel {
+pub struct MonitoredChannelStats {
     pub channel_id: String,
     pub channel_name: String,
-    pub last_video_id: Option<String>, // Track the latest video processed
     pub active: bool,
     pub created_at: String,
+    pub videos_indexed: i32,
 }

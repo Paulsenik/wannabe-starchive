@@ -26,7 +26,7 @@ pub async fn admin_login(login_request: Json<AdminLoginRequest>) -> Json<AdminLo
 
 #[get("/stats")]
 pub async fn admin_stats(_token: AdminToken, state: &State<AppState>) -> Json<AdminStats> {
-    match admin_service::get_admin_stats(&state.es_client).await {
+    match admin_service::get_admin_stats(&state.es_client, &state.video_queue).await {
         Ok(stats) => {
             info!("Admin stats retrieved successfully");
             Json(stats)
@@ -37,6 +37,8 @@ pub async fn admin_stats(_token: AdminToken, state: &State<AppState>) -> Json<Ad
                 total_videos: 0,
                 total_captions: 0,
                 last_crawl_time: None,
+                active_monitors: 0,
+                queue_size: 0,
             })
         }
     }

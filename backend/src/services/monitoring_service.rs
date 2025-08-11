@@ -1,3 +1,4 @@
+use crate::api::MonitoredChannelStats;
 use crate::config::YOUTUBE_API_KEY;
 use crate::models::MonitoredChannel;
 use crate::services::crawler::VideoQueue;
@@ -43,8 +44,40 @@ pub async fn setup_channel_monitoring(
     Ok(())
 }
 
-pub async fn get_monitored_channels_list() -> Vec<MonitoredChannel> {
-    MONITORED_CHANNELS.read().await.clone()
+pub async fn get_monitored_channels_list(es_client: &Elasticsearch) -> Vec<MonitoredChannelStats> {
+    let channels = MONITORED_CHANNELS.read().await.clone();
+
+    let mut result = Vec::new();
+    for channel in channels {
+        let response = es_client
+            .count(elasticsearch::CountParts::Index(&["youtube_videos"]))
+            .body(json!({
+                "query": {
+                    "match": {
+                        "channel_id": channel.channel_id
+                    }
+                }
+            }))
+            .send()
+            .await;
+
+        let video_count = match response {
+            Ok(r) => {
+                let count: Value = r.json().await.unwrap_or(json!({"count": 0}));
+                count["count"].as_i64().unwrap_or(0) as i32
+            }
+            Err(_) => 0,
+        };
+
+        result.push(MonitoredChannelStats {
+            channel_id: channel.channel_id,
+            channel_name: channel.channel_name,
+            active: channel.active,
+            created_at: channel.created_at,
+            videos_indexed: video_count,
+        });
+    }
+    result
 }
 
 pub async fn remove_monitored_channel(
@@ -72,10 +105,17 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
     // Extract channel ID from different URL formats
     let channel_id = if input.contains("/channel/") {
         // Format: https://www.youtube.com/channel/UCTeLqJq1mXUX5WWoNXLmOIA
-        input.split("/channel/").nth(1).unwrap_or("").to_string()
+        input
+            .split("/channel/")
+            .nth(1)
+            .ok_or_else(|| anyhow::anyhow!("Invalid channel URL"))?
+            .to_string()
     } else if input.contains("/@") {
         // Format: https://youtube.com/@RobertsSpaceInd
-        let handle = input.split("/@").nth(1).unwrap_or("");
+        let handle = input
+            .split("/@")
+            .nth(1)
+            .ok_or_else(|| anyhow::anyhow!("Invalid handle URL"))?;
         // Get channel ID from handle via API
         let url = format!(
             "https://www.googleapis.com/youtube/v3/channels?part=id&forHandle={}&key={}",
@@ -84,11 +124,14 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
         let response = client.get(&url).send().await?.json::<Value>().await?;
         response["items"][0]["id"]
             .as_str()
-            .unwrap_or("")
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response"))?
             .to_string()
     } else if input.contains("/c/") {
         // Format: https://www.youtube.com/c/RobertsSpaceInd
-        let custom = input.split("/c/").nth(1).unwrap_or("");
+        let custom = input
+            .split("/c/")
+            .nth(1)
+            .ok_or_else(|| anyhow::anyhow!("Invalid custom URL"))?;
         // Get channel ID from custom URL via API
         let url = format!(
             "https://www.googleapis.com/youtube/v3/channels?part=id&forUsername={}&key={}",
@@ -97,7 +140,7 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
         let response = client.get(&url).send().await?.json::<Value>().await?;
         response["items"][0]["id"]
             .as_str()
-            .unwrap_or("")
+            .ok_or_else(|| anyhow::anyhow!("Invalid API response"))?
             .to_string()
     } else {
         return Err(anyhow::anyhow!("Invalid channel URL format"));
@@ -115,9 +158,8 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
         channel_id,
         channel_name: channel["snippet"]["title"]
             .as_str()
-            .unwrap_or("")
+            .ok_or_else(|| anyhow::anyhow!("Invalid channel title"))?
             .to_string(),
-        last_video_id: None,
         active: true,
         created_at: chrono::Utc::now().to_rfc3339(),
     })

@@ -1,4 +1,4 @@
-use crate::models::MonitoredChannel;
+use crate::models::MonitoredChannelStats;
 use crate::router::Route;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct MonitoredChannelModify {
 
 #[function_component(AdminMonitorsPage)]
 pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
-    let channels = use_state(Vec::<MonitoredChannel>::new);
+    let channels = use_state(Vec::<MonitoredChannelStats>::new);
     let loading = use_state(|| false);
     let error_message = use_state(|| None::<String>);
     let error_message = use_state(|| None::<String>);
@@ -60,7 +60,7 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                     Ok(_) => {
                         // Remove channel from list
                         let current_channels = (*channels).clone();
-                        let updated_channels: Vec<MonitoredChannel> = current_channels
+                        let updated_channels: Vec<MonitoredChannelStats> = current_channels
                             .into_iter()
                             .filter(|c| c.channel_id != channel_id)
                             .collect();
@@ -170,7 +170,7 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Name"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Videos"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Indexed Videos"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Active"}</th>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Actions"}</th>
                                             </tr>
@@ -188,7 +188,7 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                                                                 <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/channel/{}",&channel.channel_id)} class="text-blue-600 hover:underline">{&channel.channel_name}</a></div>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {"TODO"}
+                                                                {&channel.videos_indexed}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 <button
@@ -281,7 +281,7 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
     }
 }
 
-async fn load_channels() -> Result<Vec<MonitoredChannel>, String> {
+async fn load_channels() -> Result<Vec<MonitoredChannelStats>, String> {
     let backend_url = "http://localhost:8000";
     let url = format!("{}/monitor/channel", backend_url);
 
@@ -299,7 +299,7 @@ async fn load_channels() -> Result<Vec<MonitoredChannel>, String> {
 
     if response.ok() {
         response
-            .json::<Vec<MonitoredChannel>>()
+            .json::<Vec<MonitoredChannelStats>>()
             .await
             .map_err(|e| format!("JSON parse error: {}", e))
     } else {

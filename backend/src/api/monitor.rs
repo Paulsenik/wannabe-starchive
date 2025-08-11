@@ -1,4 +1,3 @@
-use crate::models::MonitoredChannel;
 use crate::services::monitoring_service::{
     add_monitored_channel, check_channel_for_new_videos, check_playlist_for_new_videos,
     get_monitored_channels_list, remove_monitored_channel, set_active,
@@ -14,6 +13,15 @@ pub struct NewChannel {
     input: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MonitoredChannelStats {
+    pub channel_id: String,
+    pub channel_name: String,
+    pub active: bool,
+    pub created_at: String,
+    pub videos_indexed: i32,
+}
+
 #[post("/channel", data = "<channel>")]
 pub async fn add_channel(
     channel: Json<NewChannel>,
@@ -26,8 +34,10 @@ pub async fn add_channel(
 }
 
 #[get("/channel")]
-pub async fn get_channels() -> Result<Json<Vec<MonitoredChannel>>, Status> {
-    Ok(Json(get_monitored_channels_list().await))
+pub async fn get_channels(
+    state: &State<AppState>,
+) -> Result<Json<Vec<MonitoredChannelStats>>, Status> {
+    Ok(Json(get_monitored_channels_list(&state.es_client).await))
 }
 
 #[delete("/channel/<channel_id>")]

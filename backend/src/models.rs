@@ -23,6 +23,8 @@ pub struct AdminStats {
     pub total_videos: i64,
     pub total_captions: i64,
     pub last_crawl_time: Option<String>,
+    pub active_monitors: i32,
+    pub queue_size: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -122,7 +124,6 @@ pub struct VideoMetadata {
 pub struct MonitoredChannel {
     pub channel_id: String,
     pub channel_name: String,
-    pub last_video_id: Option<String>, // Track the latest video processed
     pub active: bool,
     pub created_at: String,
 }
@@ -131,7 +132,6 @@ pub struct MonitoredChannel {
 pub struct MonitoredPlaylist {
     pub playlist_id: String,
     pub playlist_name: String,
-    pub last_video_id: Option<String>,
     pub active: bool,
     pub created_at: String,
 }

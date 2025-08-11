@@ -21,6 +21,8 @@ pub struct AdminStats {
     pub total_videos: i64,
     pub total_captions: i64,
     pub last_crawl_time: Option<String>,
+    pub active_monitors: i32,
+    pub queue_size: usize,
 }
 
 #[derive(Properties, PartialEq)]
@@ -182,14 +184,29 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                     <div class="text-sm opacity-80">{"Total Captions"}</div>
                 </Link<Route>>
                 <Link<Route> to={Route::AdminQueue} classes="bg-purple-600 text-white p-4 rounded text-center hover:bg-purple-700">
-                    <div class="font-semibold text-lg mb-2">{"Download Queue"}</div>
-                    <div class="text-3xl font-bold">{format_iso8601_time_since(props.stats.last_crawl_time.as_deref().unwrap_or("Never"))}</div>
-                    <div class="text-sm opacity-80">{"Last Crawl"}</div>
+                    <div class="font-semibold text-lg mb-2">{"Manage Queue"}</div>
+                    {
+                        if props.stats.queue_size > 0 {
+                            html! {
+                                <>
+                                    <div class="text-3xl font-bold">{props.stats.queue_size}</div>
+                                    <div class="text-sm opacity-80">{"Items in Queue"}</div>
+                                </>
+                            }
+                        } else {
+                            html! {
+                                <>
+                                    <div class="text-3xl font-bold">{format_iso8601_time_since(props.stats.last_crawl_time.as_deref().unwrap_or("Never"))}</div>
+                                    <div class="text-sm opacity-80">{"Last Crawl"}</div>
+                                </>
+                            }
+                        }
+                    }
                 </Link<Route>>
                 <Link<Route> to={Route::AdminMonitors} classes="bg-orange-600 text-white p-4 rounded text-center hover:bg-orange-700">
                     <div class="font-semibold text-lg mb-2">{"Manage Monitors"}</div>
-                    <div class="text-3xl font-bold">{"..."}</div>
-                    <div class="text-sm opacity-80">{"Channel & Playlist Monitor"}</div>
+                    <div class="text-3xl font-bold">{props.stats.active_monitors}</div>
+                    <div class="text-sm opacity-80">{"Active Channel & Playlist Monitors"}</div>
                 </Link<Route>>
             </div>
         </div>
@@ -347,6 +364,8 @@ pub fn admin_page(_props: &AdminPageProps) -> Html {
                                         total_videos: 0,
                                         total_captions: 0,
                                         last_crawl_time: None,
+                                        active_monitors: 0,
+                                        queue_size: 0,
                                     })}
                                     loading={*loading}
                                     on_logout={on_logout}
