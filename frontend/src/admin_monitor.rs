@@ -16,8 +16,8 @@ pub struct MonitoredChannelModify {
     pub active: bool,
 }
 
-#[function_component(AdminChannelsPage)]
-pub fn admin_channels_page(_props: &AdminChannelsPageProps) -> Html {
+#[function_component(AdminMonitorsPage)]
+pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
     let channels = use_state(Vec::<MonitoredChannel>::new);
     let loading = use_state(|| false);
     let error_message = use_state(|| None::<String>);

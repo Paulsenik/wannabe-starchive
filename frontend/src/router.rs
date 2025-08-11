@@ -3,7 +3,7 @@ use yew_router::prelude::*;
 
 use crate::admin::AdminPage;
 use crate::admin_captions::AdminCaptionsPage;
-use crate::admin_monitor::AdminChannelsPage;
+use crate::admin_monitor::AdminMonitorsPage;
 use crate::admin_queue::AdminQueuePage;
 use crate::admin_videos::AdminVideosPage;
 use crate::models::SearchResult;
@@ -19,8 +19,8 @@ pub enum Route {
     AdminVideos,
     #[at("/admin/captions")]
     AdminCaptions,
-    #[at("/admin/channels")]
-    AdminChannels,
+    #[at("/admin/monitors")]
+    AdminMonitors,
     #[at("/admin/queue")]
     AdminQueue,
     #[not_found]
@@ -34,7 +34,7 @@ pub fn switch(routes: Route) -> Html {
         Route::Admin => html! { <AdminPage /> },
         Route::AdminVideos => html! { <AdminVideosPage /> },
         Route::AdminCaptions => html! { <AdminCaptionsPage /> },
-        Route::AdminChannels => html! { <AdminChannelsPage /> },
+        Route::AdminMonitors => html! { <AdminMonitorsPage /> },
         Route::AdminQueue => html! { <AdminQueuePage /> },
         Route::NotFound => html! {
             <div class="min-h-screen flex items-center justify-center bg-gray-700">
