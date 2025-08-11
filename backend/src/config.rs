@@ -13,7 +13,7 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::services::crawler::{crawl_youtube_video, VideoQueue};
 use crate::services::elasticsearch_service::create_es_index;
-use crate::services::monitoring::setup_channel_monitoring;
+use crate::services::monitoring_service::setup_channel_monitoring;
 use crate::AppState;
 
 pub fn init_logger() {
@@ -43,6 +43,10 @@ pub async fn setup_scheduler(
     let scheduler = JobScheduler::new().await?;
     let es_client_clone = es_client.clone();
     let video_queue_clone = video_queue.clone();
+    let craw_burst_max = std::env::var("CRAWL_BURST_MAX")
+        .unwrap_or_else(|_| "1".to_string())
+        .parse::<i32>()
+        .unwrap_or(1);
 
     let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
         let es_client_for_job = es_client_clone.clone();
@@ -51,7 +55,7 @@ pub async fn setup_scheduler(
             if queue.get_size() == 0 {
                 return;
             }
-            crawl_youtube_video(&es_client_for_job, &queue).await;
+            crawl_youtube_video(&es_client_for_job, &queue, craw_burst_max).await;
         })
     })?;
 

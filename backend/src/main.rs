@@ -12,8 +12,8 @@ mod models;
 mod services;
 
 use crate::api::{
-    add_channel, check_channel, check_playlist, get_channel_upload_playlist, get_channels,
-    get_playlist_videos, remove_channel,
+    activate_channel, add_channel, check_channel, check_playlist, deactivate_channel, get_channels,
+    remove_channel,
 };
 use api::{
     admin_enqueue, admin_login, admin_stats, delete_video_endpoint, get_queue, get_video_metadata,
@@ -49,10 +49,10 @@ async fn rocket() -> _ {
                 add_channel,
                 get_channels,
                 remove_channel,
-                get_playlist_videos,
-                get_channel_upload_playlist,
                 check_playlist,
                 check_channel,
+                activate_channel,
+                deactivate_channel,
             ],
         )
         .mount(

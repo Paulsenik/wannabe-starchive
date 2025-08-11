@@ -1,4 +1,4 @@
-use crate::models::{MonitoredChannel, MonitoredChannelModify};
+use crate::models::MonitoredChannel;
 use crate::router::Route;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,13 @@ use yew_router::prelude::*;
 
 #[derive(Properties, PartialEq)]
 pub struct AdminChannelsPageProps {}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MonitoredChannelModify {
+    pub channel_input: String,
+    pub channel_name: String,
+    pub active: bool,
+}
 
 #[function_component(AdminChannelsPage)]
 pub fn admin_channels_page(_props: &AdminChannelsPageProps) -> Html {
@@ -178,13 +185,51 @@ pub fn admin_channels_page(_props: &AdminChannelsPageProps) -> Html {
                                                     html! {
                                                         <tr>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/channel/{}",&channel.channel_id)} class="text-blue-600 hover:underline">{&channel.channel_id}</a></div>
+                                                                <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/channel/{}",&channel.channel_id)} class="text-blue-600 hover:underline">{&channel.channel_name}</a></div>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {"TODO"}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {if channel.active { "Yes" } else { "No" }}
+                                                                <button
+                                                                    onclick={
+                                                                        let channel_id = channel.channel_id.clone();
+                                                                        let current_active = channel.active;
+                                                                        let channels = channels.clone();
+                                                                        let error_message = error_message.clone();
+
+                                                                        Callback::from(move |_| {
+                                                                            let channel_id = channel_id.clone();
+                                                                            let channels = channels.clone();
+                                                                            let error_message = error_message.clone();
+
+                                                                            wasm_bindgen_futures::spawn_local(async move {
+                                                                                match toggle_channel_active(&channel_id, !current_active).await {
+                                                                                    Ok(_) => {
+                                                                                        match load_channels().await {
+                                                                                            Ok(channel_list) => {
+                                                                                                channels.set(channel_list);
+                                                                                            }
+                                                                                            Err(e) => {
+                                                                                                error_message.set(Some(format!("Failed to reload channels: {}", e)));
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        error_message.set(Some(format!("Failed to toggle channel status: {}", e)));
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        })
+                                                                    }
+                                                                    class={if channel.active {
+                                                                        "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                                                                    } else {
+                                                                        "px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                                                                    }}
+                                                                >
+                                                                    {if channel.active { "Active" } else { "Inactive" }}
+                                                                </button>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                                                 <div class="flex gap-2">
@@ -262,12 +307,9 @@ async fn load_channels() -> Result<Vec<MonitoredChannel>, String> {
     }
 }
 
-fn extract_channel_id(input: &str) -> String {
-    if let Some(channel_id) = input.strip_prefix("https://www.youtube.com/channel/") {
-        channel_id.split('/').next().unwrap_or(input).to_string()
-    } else {
-        input.to_string()
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NewChannel {
+    input: String,
 }
 
 async fn add_channel(input: &str) -> Result<(), String> {
@@ -280,17 +322,14 @@ async fn add_channel(input: &str) -> Result<(), String> {
         .flatten()
         .ok_or("No admin token found")?;
 
-    let channel_id = extract_channel_id(input);
-
-    let channel = MonitoredChannelModify {
-        channel_id: channel_id,
-        channel_name: "".to_string(), // Will be populated by backend
-        active: true,
+    let new_channel = NewChannel {
+        input: input.to_string(),
     };
 
     let response = Request::post(&url)
         .header("Authorization", &format!("Bearer {}", token))
-        .json(&channel)
+        .header("Content-Type", "application/json")
+        .json(&new_channel)
         .map_err(|e| format!("Failed to serialize: {}", e))?
         .send()
         .await
@@ -329,6 +368,34 @@ async fn delete_channel(channel_id: &str) -> Result<(), String> {
 async fn force_check_complete_channel(channel_id: &str) -> Result<(), String> {
     let backend_url = "http://localhost:8000";
     let url = format!("{}/monitor/channel/{}/check", backend_url, channel_id);
+
+    let token = window()
+        .and_then(|w| w.session_storage().ok())
+        .and_then(|s| s.and_then(|storage| storage.get_item("admin_token").ok()))
+        .flatten()
+        .ok_or("No admin token found")?;
+
+    let response = Request::post(&url)
+        .header("Authorization", &format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    if response.ok() {
+        Ok(())
+    } else {
+        Err(format!("HTTP error: {}", response.status()))
+    }
+}
+
+async fn toggle_channel_active(channel_id: &str, active: bool) -> Result<(), String> {
+    let backend_url = "http://localhost:8000";
+    let url = format!(
+        "{}/monitor/channel/{}/{}",
+        backend_url,
+        channel_id,
+        if active { "activate" } else { "deactivate" }
+    );
 
     let token = window()
         .and_then(|w| w.session_storage().ok())

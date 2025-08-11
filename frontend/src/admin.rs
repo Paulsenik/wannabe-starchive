@@ -187,9 +187,9 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                     <div class="text-sm opacity-80">{"Last Crawl"}</div>
                 </Link<Route>>
                 <Link<Route> to={Route::AdminChannels} classes="bg-orange-600 text-white p-4 rounded text-center hover:bg-orange-700">
-                    <div class="font-semibold text-lg mb-2">{"Manage Channels"}</div>
+                    <div class="font-semibold text-lg mb-2">{"Manage Monitors"}</div>
                     <div class="text-3xl font-bold">{"..."}</div>
-                    <div class="text-sm opacity-80">{"Channel Management"}</div>
+                    <div class="text-sm opacity-80">{"Channel & Playlist Monitor"}</div>
                 </Link<Route>>
             </div>
         </div>

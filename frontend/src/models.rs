@@ -33,10 +33,3 @@ pub struct MonitoredChannel {
     pub active: bool,
     pub created_at: String,
 }
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MonitoredChannelModify {
-    pub channel_id: String,
-    pub channel_name: String,
-    pub active: bool,
-}

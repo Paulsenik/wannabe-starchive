@@ -1,4 +1,4 @@
-use crate::models::{MonitoredChannel, MonitoredChannelModify};
+use crate::models::MonitoredChannel;
 use crate::services::crawler::VideoQueue;
 use elasticsearch::{DeleteParts, Elasticsearch, SearchParts};
 use log::{error, info};
@@ -67,35 +67,100 @@ pub async fn remove_monitored_channel(
     Ok(())
 }
 
-pub async fn add_monitored_channel(
-    channel: MonitoredChannelModify,
-    es_client: &Elasticsearch,
-) -> Result<(), anyhow::Error> {
-    info!("Adding new monitored channel: {}", channel.channel_name);
+async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow::Error> {
+    let client = Client::new();
+    let api_key = std::env::var("YOUTUBE_API_KEY")?;
 
-    let new_channel = MonitoredChannel {
-        channel_id: channel.channel_id.clone(),
-        channel_name: channel.channel_name,
+    // Extract channel ID from different URL formats
+    let channel_id = if input.contains("/channel/") {
+        // Format: https://www.youtube.com/channel/UCTeLqJq1mXUX5WWoNXLmOIA
+        input.split("/channel/").nth(1).unwrap_or("").to_string()
+    } else if input.contains("/@") {
+        // Format: https://youtube.com/@RobertsSpaceInd
+        let handle = input.split("/@").nth(1).unwrap_or("");
+        // Get channel ID from handle via API
+        let url = format!(
+            "https://www.googleapis.com/youtube/v3/channels?part=id&forHandle={}&key={}",
+            handle, api_key
+        );
+        let response = client.get(&url).send().await?.json::<Value>().await?;
+        response["items"][0]["id"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    } else if input.contains("/c/") {
+        // Format: https://www.youtube.com/c/RobertsSpaceInd
+        let custom = input.split("/c/").nth(1).unwrap_or("");
+        // Get channel ID from custom URL via API
+        let url = format!(
+            "https://www.googleapis.com/youtube/v3/channels?part=id&forUsername={}&key={}",
+            custom, api_key
+        );
+        let response = client.get(&url).send().await?.json::<Value>().await?;
+        response["items"][0]["id"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    } else {
+        return Err(anyhow::anyhow!("Invalid channel URL format"));
+    };
+
+    let url = format!(
+        "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id={}&key={}",
+        channel_id, api_key
+    );
+
+    let response = client.get(&url).send().await?.json::<Value>().await?;
+    let channel = &response["items"][0];
+
+    Ok(MonitoredChannel {
+        channel_id,
+        channel_name: channel["snippet"]["title"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
         last_video_id: None,
         active: true,
         created_at: chrono::Utc::now().to_rfc3339(),
-    };
+    })
+}
+
+pub async fn add_monitored_channel(
+    channel_input: &str,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    info!("Adding new monitored channel: {}", channel_input);
+
+    let new_channel;
+
+    match fetch_monitored_channel(channel_input).await {
+        Ok(channel) => {
+            new_channel = channel;
+        }
+        Err(e) => {
+            error!("Failed to fetch monitored channel from youtube: {}", e);
+            return Err(e);
+        }
+    }
 
     // Add to Elasticsearch with channel_id as document ID
     es_client
         .index(elasticsearch::IndexParts::IndexId(
             "monitored_channels",
-            &channel.channel_id,
+            &new_channel.channel_id,
         ))
         .body(json!(new_channel))
         .send()
         .await?;
 
+    info!(
+        "Successfully added new monitored channel: {} ({})",
+        new_channel.channel_name, new_channel.channel_id
+    );
+
     // Add to in-memory list
     let mut channels = MONITORED_CHANNELS.write().await;
     channels.push(new_channel);
-
-    info!("Successfully added new monitored channel");
     Ok(())
 }
 
@@ -206,7 +271,8 @@ pub async fn check_playlist_for_new_videos(
             Ok(response) => {
                 // Video doesn't exist, add to queue
                 if !response.status_code().is_success() {
-                    //video_queue.add_video(video_id.clone());
+                    // TODO - remove when needed
+                    video_queue.add_video(video_id.clone());
                     info!("Added video to queue: {}", video_id);
                 } else {
                     info!("Video already exists: {}", video_id);
@@ -287,4 +353,32 @@ pub async fn fetch_all_playlist_videos(
     }
 
     Ok(all_video_ids)
+}
+
+pub async fn set_active(
+    channel_id: &str,
+    active: bool,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    es_client
+        .update(elasticsearch::UpdateParts::IndexId(
+            "monitored_channels",
+            channel_id,
+        ))
+        .body(json!({
+            "doc": {
+                "active": active
+            }
+        }))
+        .send()
+        .await?;
+
+    // Update in-memory list
+    let mut channels = MONITORED_CHANNELS.write().await;
+    if let Some(channel) = channels.iter_mut().find(|c| c.channel_id == channel_id) {
+        channel.active = active;
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Channel not found"))
+    }
 }

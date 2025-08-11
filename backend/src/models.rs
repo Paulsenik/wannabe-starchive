@@ -130,13 +130,6 @@ pub struct MonitoredChannel {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct MonitoredChannelModify {
-    pub channel_id: String,
-    pub channel_name: String,
-    pub active: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
 pub struct MonitoredPlaylist {
     pub playlist_id: String,
     pub playlist_name: String,

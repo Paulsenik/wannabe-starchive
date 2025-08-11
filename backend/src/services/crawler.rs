@@ -291,9 +291,14 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
     }
 }
 
-pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQueue) {
+pub async fn crawl_youtube_video(
+    es_client: &Elasticsearch,
+    video_queue: &VideoQueue,
+    maxcount: i32,
+) {
     info!("Starting YouTube caption crawl...");
 
+    let mut count = 0;
     while let Some(item) = video_queue.pop_next_video() {
         info!("Processing video ID: {}", item.video_id);
 
@@ -301,6 +306,12 @@ pub async fn crawl_youtube_video(es_client: &Elasticsearch, video_queue: &VideoQ
         process_video_captions(es_client, &item.video_id).await;
 
         video_queue.mark_completed(&item.id);
+
+        count += 1;
+        if (count >= maxcount) {
+            info!("YouTube caption crawl maxcount reached. ");
+            break;
+        }
     }
     info!("YouTube caption crawl completed.");
 }
