@@ -1,6 +1,6 @@
-use crate::api::MonitoredChannelStats;
+use crate::api::{MonitoredChannelStats, MonitoredPlaylistStats};
 use crate::config::YOUTUBE_API_KEY;
-use crate::models::MonitoredChannel;
+use crate::models::{MonitoredChannel, MonitoredPlaylist};
 use crate::services::crawler::VideoQueue;
 use elasticsearch::{DeleteParts, Elasticsearch, SearchParts};
 use log::{error, info};
@@ -12,20 +12,20 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 lazy_static::lazy_static! {
     pub static ref MONITORED_CHANNELS: Arc<RwLock<Vec<MonitoredChannel>>> = Arc::new(RwLock::new(Vec::new()));
+    pub static ref MONITORED_PlAYLISTS: Arc<RwLock<Vec<MonitoredPlaylist>>> = Arc::new(RwLock::new(Vec::new()));
 }
 
-pub async fn setup_channel_monitoring(
+pub async fn setup_monitoring(
     es_client: Arc<Elasticsearch>,
     video_queue: Arc<VideoQueue>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Setting up channel monitoring scheduler...");
+    info!("Setting up monitoring scheduler...");
 
     let sched = JobScheduler::new().await?;
 
-    // Load monitored channels from Elasticsearch on startup
     load_monitored_channels(&es_client).await;
+    load_monitored_playlists(&es_client).await;
 
-    // Check channels every 10 minutes
     let es_client_clone = es_client.clone();
     let queue_clone = video_queue.clone();
 
@@ -34,13 +34,14 @@ pub async fn setup_channel_monitoring(
         let queue = queue_clone.clone();
         Box::pin(async move {
             check_monitored_channels(&es_client, &queue).await;
+            check_monitored_playlists(&es_client, &queue).await;
         })
     })?;
 
     sched.add(monitor_job).await?;
 
     sched.start().await?;
-    info!("Channel monitoring scheduler started.");
+    info!("Monitoring scheduler started.");
     Ok(())
 }
 
@@ -80,6 +81,22 @@ pub async fn get_monitored_channels_list(es_client: &Elasticsearch) -> Vec<Monit
     result
 }
 
+pub async fn get_monitored_playlist_list() -> Vec<MonitoredPlaylistStats> {
+    let playlists = MONITORED_PlAYLISTS.read().await.clone();
+
+    let mut result = Vec::new();
+    for playlist in playlists {
+        result.push(MonitoredPlaylistStats {
+            playlist_id: playlist.playlist_id,
+            playlist_name: playlist.playlist_name,
+            active: playlist.active,
+            created_at: playlist.created_at,
+            videos_indexed: 0, // TODO: query indexed videos
+        });
+    }
+    result
+}
+
 pub async fn remove_monitored_channel(
     channel_id: &str,
     es_client: &Elasticsearch,
@@ -95,6 +112,24 @@ pub async fn remove_monitored_channel(
     channels.retain(|channel| channel.channel_id != channel_id);
 
     info!("Successfully removed monitored channel");
+    Ok(())
+}
+
+pub async fn remove_monitored_playlist(
+    playlist_id: &str,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    info!("Removing monitored playlist: {}", playlist_id);
+
+    es_client
+        .delete(DeleteParts::IndexId("monitored_playlists", playlist_id))
+        .send()
+        .await?;
+
+    let mut playlists = MONITORED_PlAYLISTS.write().await;
+    playlists.retain(|channel| channel.playlist_id != playlist_id);
+
+    info!("Successfully removed monitored playlist");
     Ok(())
 }
 
@@ -165,6 +200,45 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
     })
 }
 
+async fn fetch_monitored_playlist(input: &str) -> Result<MonitoredPlaylist, anyhow::Error> {
+    let client = Client::new();
+    let api_key = &*YOUTUBE_API_KEY;
+
+    // Extract playlist ID from different URL formats
+    let playlist_id = if input.contains("/playlist?list=") {
+        // Format: https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb
+        input
+            .split("list=")
+            .nth(1)
+            .ok_or_else(|| anyhow::anyhow!("Invalid playlist URL"))?
+            .split('&')
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Invalid playlist URL"))?
+            .to_string()
+    } else {
+        return Err(anyhow::anyhow!("Invalid playlist URL format"));
+    };
+
+    let url = format!(
+        "https://www.googleapis.com/youtube/v3/playlists?part=snippet&id={}&key={}",
+        playlist_id, api_key
+    );
+
+    let response = client.get(&url).send().await?.json::<Value>().await?;
+    let playlist = &response["items"][0];
+    let playlist_name = playlist["snippet"]["title"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid playlist title"))?
+        .to_string();
+
+    Ok(MonitoredPlaylist {
+        playlist_id,
+        playlist_name,
+        active: true,
+        created_at: chrono::Utc::now().to_rfc3339(),
+    })
+}
+
 pub async fn add_monitored_channel(
     channel_input: &str,
     es_client: &Elasticsearch,
@@ -199,6 +273,43 @@ pub async fn add_monitored_channel(
 
     let mut channels = MONITORED_CHANNELS.write().await;
     channels.push(new_channel);
+    Ok(())
+}
+
+pub async fn add_monitored_playlist(
+    playlist_input: &str,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    info!("Adding new monitored channel: {}", playlist_input);
+
+    let new_playlist;
+
+    match fetch_monitored_playlist(playlist_input).await {
+        Ok(playlist) => {
+            new_playlist = playlist;
+        }
+        Err(e) => {
+            error!("Failed to fetch monitored playlist from youtube: {}", e);
+            return Err(e);
+        }
+    }
+
+    es_client
+        .index(elasticsearch::IndexParts::IndexId(
+            "monitored_playlists",
+            &new_playlist.playlist_id,
+        ))
+        .body(json!(new_playlist))
+        .send()
+        .await?;
+
+    info!(
+        "Successfully added new monitored playlist: {} ({})",
+        new_playlist.playlist_name, new_playlist.playlist_id
+    );
+
+    let mut playlists = MONITORED_PlAYLISTS.write().await;
+    playlists.push(new_playlist);
     Ok(())
 }
 
@@ -243,6 +354,47 @@ async fn load_monitored_channels(es_client: &Elasticsearch) {
     }
 }
 
+async fn load_monitored_playlists(es_client: &Elasticsearch) {
+    info!("Loading monitored channels from Elasticsearch...");
+
+    let search_response = es_client
+        .search(SearchParts::Index(&["monitored_playlists"]))
+        .body(json!({
+            "query": {
+                "match_all": {}
+            },
+            "size": 1000
+        }))
+        .send()
+        .await;
+
+    match search_response {
+        Ok(response) => {
+            let response_body: Value = response.json().await.unwrap_or_default();
+
+            if let Some(hits) = response_body["hits"]["hits"].as_array() {
+                let mut playlists = MONITORED_PlAYLISTS.write().await;
+                playlists.clear();
+
+                for hit in hits {
+                    if let Some(source) = hit["_source"].as_object() {
+                        if let Ok(channel) =
+                            serde_json::from_value::<MonitoredPlaylist>(source.clone().into())
+                        {
+                            playlists.push(channel);
+                        }
+                    }
+                }
+
+                info!("Loaded {} monitored playlists", playlists.len());
+            }
+        }
+        Err(e) => {
+            error!("Failed to load monitored playlists: {}", e);
+        }
+    }
+}
+
 async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &VideoQueue) {
     info!("Checking monitored channels for new videos...");
 
@@ -259,6 +411,25 @@ async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &Video
         }
     }
     info!("Finished checking monitored channels!");
+}
+
+async fn check_monitored_playlists(es_client: &Elasticsearch, video_queue: &VideoQueue) {
+    info!("Checking monitored playlists for new videos...");
+
+    let playlists = MONITORED_PlAYLISTS.read().await;
+
+    for playlist in playlists.iter() {
+        info!(
+            "Checking channel: {} ({}) - active: {}",
+            playlist.playlist_name, playlist.playlist_id, playlist.active
+        );
+
+        if playlist.active {
+            check_playlist_for_new_videos(&playlist.playlist_id, &es_client, &video_queue).await;
+            // TODO: Add custom tagging for playlist-videos
+        }
+    }
+    info!("Finished checking monitored playlists!");
 }
 
 pub async fn check_channel_for_new_videos(
@@ -393,7 +564,7 @@ pub async fn fetch_all_playlist_videos(
     Ok(all_video_ids)
 }
 
-pub async fn set_active(
+pub async fn set_channel_active(
     channel_id: &str,
     active: bool,
     es_client: &Elasticsearch,
@@ -417,5 +588,32 @@ pub async fn set_active(
         Ok(())
     } else {
         Err(anyhow::anyhow!("Channel not found"))
+    }
+}
+
+pub async fn set_playlist_active(
+    playlist_id: &str,
+    active: bool,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    es_client
+        .update(elasticsearch::UpdateParts::IndexId(
+            "monitored_playlists",
+            playlist_id,
+        ))
+        .body(json!({
+            "doc": {
+                "active": active
+            }
+        }))
+        .send()
+        .await?;
+
+    let mut playlists = MONITORED_PlAYLISTS.write().await;
+    if let Some(playlist) = playlists.iter_mut().find(|c| c.playlist_id == playlist_id) {
+        playlist.active = active;
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Playlist not found"))
     }
 }

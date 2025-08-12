@@ -33,3 +33,12 @@ pub struct MonitoredChannelStats {
     pub created_at: String,
     pub videos_indexed: i32,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MonitoredPlaylistStats {
+    pub playlist_id: String,
+    pub playlist_name: String,
+    pub active: bool,
+    pub created_at: String,
+    pub videos_indexed: i32,
+}
