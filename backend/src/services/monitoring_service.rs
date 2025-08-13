@@ -33,8 +33,14 @@ pub async fn setup_monitoring(
         let es_client = es_client_clone.clone();
         let queue = queue_clone.clone();
         Box::pin(async move {
-            check_monitored_channels(&es_client, &queue).await;
-            check_monitored_playlists(&es_client, &queue).await;
+            if let Err(e) = tokio::spawn(async move {
+                check_monitored_channels(&es_client, &queue).await;
+                check_monitored_playlists(&es_client, &queue).await;
+            })
+            .await
+            {
+                error!("Monitoring job failed: {}", e);
+            }
         })
     })?;
 
@@ -76,22 +82,44 @@ pub async fn get_monitored_channels_list(es_client: &Elasticsearch) -> Vec<Monit
             active: channel.active,
             created_at: channel.created_at,
             videos_indexed: video_count,
+            videos_uploaded: channel.videos_uploaded,
         });
     }
     result
 }
 
-pub async fn get_monitored_playlist_list() -> Vec<MonitoredPlaylistStats> {
+pub async fn get_monitored_playlist_list(es_client: &Elasticsearch) -> Vec<MonitoredPlaylistStats> {
     let playlists = MONITORED_PlAYLISTS.read().await.clone();
 
     let mut result = Vec::new();
     for playlist in playlists {
+        let response = es_client
+            .count(elasticsearch::CountParts::Index(&["youtube_videos"]))
+            .body(json!({
+                "query": {
+                    "match": {
+                        "playlist_id": playlist.playlist_id
+                    }
+                }
+            }))
+            .send()
+            .await;
+
+        let video_count = match response {
+            Ok(r) => {
+                let count: Value = r.json().await.unwrap_or(json!({"count": 0}));
+                count["count"].as_i64().unwrap_or(0) as i32
+            }
+            Err(_) => 0,
+        };
+
         result.push(MonitoredPlaylistStats {
             playlist_id: playlist.playlist_id,
             playlist_name: playlist.playlist_name,
             active: playlist.active,
             created_at: playlist.created_at,
-            videos_indexed: 0, // TODO: query indexed videos
+            videos_indexed: video_count,
+            videos_added: playlist.videos_added,
         });
     }
     result
@@ -430,13 +458,38 @@ async fn check_monitored_playlists(es_client: &Elasticsearch, video_queue: &Vide
 
     for playlist in playlists.iter() {
         info!(
-            "Checking channel: {} ({}) - active: {}",
+            "Checking playlist: {} ({}) - active: {}",
             playlist.playlist_name, playlist.playlist_id, playlist.active
         );
 
         if playlist.active {
-            check_playlist_for_new_videos(&playlist.playlist_id, &es_client, &video_queue).await;
-            // TODO: Add custom tagging for playlist-videos
+            match check_playlist_for_new_videos(&playlist.playlist_id, &es_client, &video_queue)
+                .await
+            {
+                Ok(video_count) => {
+                    if let Err(e) = es_client
+                        .update(elasticsearch::UpdateParts::IndexId(
+                            "monitored_playlists",
+                            &playlist.playlist_id,
+                        ))
+                        .body(json!({
+                            "doc": {
+                                "videos_added": video_count
+                            }
+                        }))
+                        .send()
+                        .await
+                    {
+                        error!("Failed to update playlist video count: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Error checking playlist {} for new videos: {}",
+                        playlist.playlist_id, e
+                    );
+                }
+            }
         }
     }
     info!("Finished checking monitored playlists!");
@@ -449,12 +502,17 @@ pub async fn check_channel_for_new_videos(
 ) {
     match get_channel_playlist_id(&channel_id).await {
         Ok(playlist_id) => {
-            let count = check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue)
-                .await
-                .expect("TODO: panic message");
-            update_channel_video_count(channel_id, count, &es_client)
-                .await
-                .expect("TODO: panic message");
+            match check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue).await {
+                Ok(count) => {
+                    if let Err(e) = update_channel_video_count(channel_id, count, &es_client).await
+                    {
+                        error!("Failed to update channel video count: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to check playlist for new videos: {}", e);
+                }
+            }
         }
         Err(e) => {
             error!(
@@ -496,7 +554,7 @@ pub async fn check_playlist_for_new_videos(
     playlist_id: &str,
     es_client: &Elasticsearch,
     video_queue: &VideoQueue,
-) -> Result<i64, Box<dyn std::error::Error>> {
+) -> Result<i64, anyhow::Error> {
     let all_playlist_videos = match fetch_all_playlist_videos(playlist_id).await {
         Ok(videos) => videos,
         Err(e) => {
@@ -562,9 +620,7 @@ pub async fn get_channel_playlist_id(channel_id: &str) -> Result<String, anyhow:
 }
 
 // Returns list of YT-Videos of a given playlist.
-pub async fn fetch_all_playlist_videos(
-    playlist_id: &str,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub async fn fetch_all_playlist_videos(playlist_id: &str) -> Result<Vec<String>, anyhow::Error> {
     let client = Client::new();
     let api_key = &*YOUTUBE_API_KEY;
     let mut all_video_ids = Vec::new();

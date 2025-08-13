@@ -204,6 +204,8 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                                                                 </td>
                                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                     {&channel.videos_indexed}
+                                                                    {" / "}
+                                                                    {&channel.videos_uploaded}
                                                                 </td>
                                                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                     <button
@@ -373,6 +375,8 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                                                     </td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                         {&playlist.videos_indexed}
+                                                        {" / "}
+                                                        {&playlist.videos_added}
                                                     </td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                         <button

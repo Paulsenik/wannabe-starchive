@@ -32,6 +32,7 @@ pub struct MonitoredChannelStats {
     pub active: bool,
     pub created_at: String,
     pub videos_indexed: i32,
+    pub videos_uploaded: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -41,4 +42,5 @@ pub struct MonitoredPlaylistStats {
     pub active: bool,
     pub created_at: String,
     pub videos_indexed: i32,
+    pub videos_added: i64,
 }

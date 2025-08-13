@@ -26,6 +26,7 @@ pub struct MonitoredChannelStats {
     pub active: bool,
     pub created_at: String,
     pub videos_indexed: i32,
+    pub videos_uploaded: i64,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MonitoredPlaylistStats {
@@ -34,6 +35,7 @@ pub struct MonitoredPlaylistStats {
     pub active: bool,
     pub created_at: String,
     pub videos_indexed: i32,
+    pub videos_added: i64,
 }
 
 #[post("/channel", data = "<channel>")]
@@ -97,8 +99,10 @@ pub async fn add_playlist(
 }
 
 #[get("/playlist")]
-pub async fn get_playlists() -> Result<Json<Vec<MonitoredPlaylistStats>>, Status> {
-    Ok(Json(get_monitored_playlist_list().await))
+pub async fn get_playlists(
+    state: &State<AppState>,
+) -> Result<Json<Vec<MonitoredPlaylistStats>>, Status> {
+    Ok(Json(get_monitored_playlist_list(&state.es_client).await))
 }
 
 #[delete("/playlist/<playlist_id>")]
@@ -143,6 +147,11 @@ pub async fn check_channel(channel_id: &str, state: &State<AppState>) -> Result<
 
 #[post("/playlist/<playlist_id>/check")]
 pub async fn check_playlist(playlist_id: &str, state: &State<AppState>) -> Result<Status, Status> {
-    check_playlist_for_new_videos(&playlist_id, &state.es_client, &state.video_queue).await;
-    Ok(Default::default())
+    match check_playlist_for_new_videos(&playlist_id, &state.es_client, &state.video_queue).await {
+        Ok(_) => Ok(Status::Ok),
+        Err(e) => {
+            log::error!("Failed to check playlist: {}", e);
+            Err(Status::InternalServerError)
+        }
+    }
 }
