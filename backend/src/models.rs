@@ -126,6 +126,7 @@ pub struct MonitoredChannel {
     pub channel_name: String,
     pub active: bool,
     pub created_at: String,
+    pub videos_uploaded: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -134,4 +135,5 @@ pub struct MonitoredPlaylist {
     pub playlist_name: String,
     pub active: bool,
     pub created_at: String,
+    pub videos_added: i64,
 }

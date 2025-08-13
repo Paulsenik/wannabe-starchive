@@ -18,7 +18,7 @@ lazy_static::lazy_static! {
 pub async fn setup_monitoring(
     es_client: Arc<Elasticsearch>,
     video_queue: Arc<VideoQueue>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     info!("Setting up monitoring scheduler...");
 
     let sched = JobScheduler::new().await?;
@@ -197,6 +197,11 @@ async fn fetch_monitored_channel(input: &str) -> Result<MonitoredChannel, anyhow
             .to_string(),
         active: true,
         created_at: chrono::Utc::now().to_rfc3339(),
+        videos_uploaded: channel["statistics"]["videoCount"]
+            .as_str()
+            .unwrap_or("0")
+            .parse::<i64>()
+            .unwrap_or(0),
     })
 }
 
@@ -220,7 +225,7 @@ async fn fetch_monitored_playlist(input: &str) -> Result<MonitoredPlaylist, anyh
     };
 
     let url = format!(
-        "https://www.googleapis.com/youtube/v3/playlists?part=snippet&id={}&key={}",
+        "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&id={}&key={}",
         playlist_id, api_key
     );
 
@@ -231,11 +236,16 @@ async fn fetch_monitored_playlist(input: &str) -> Result<MonitoredPlaylist, anyh
         .ok_or_else(|| anyhow::anyhow!("Invalid playlist title"))?
         .to_string();
 
+    let video_count = playlist["contentDetails"]["itemCount"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("Invalid video count"))?;
+
     Ok(MonitoredPlaylist {
         playlist_id,
         playlist_name,
         active: true,
         created_at: chrono::Utc::now().to_rfc3339(),
+        videos_added: video_count,
     })
 }
 
@@ -439,7 +449,12 @@ pub async fn check_channel_for_new_videos(
 ) {
     match get_channel_playlist_id(&channel_id).await {
         Ok(playlist_id) => {
-            check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue).await;
+            let count = check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue)
+                .await
+                .expect("TODO: panic message");
+            update_channel_video_count(channel_id, count, &es_client)
+                .await
+                .expect("TODO: panic message");
         }
         Err(e) => {
             error!(
@@ -450,23 +465,50 @@ pub async fn check_channel_for_new_videos(
     }
 }
 
+async fn update_channel_video_count(
+    channel_id: &str,
+    video_count: i64,
+    es_client: &Elasticsearch,
+) -> Result<(), anyhow::Error> {
+    es_client
+        .update(elasticsearch::UpdateParts::IndexId(
+            "monitored_channels",
+            channel_id,
+        ))
+        .body(json!({
+            "doc": {
+                "videos_uploaded": video_count
+            }
+        }))
+        .send()
+        .await?;
+
+    let mut channels = MONITORED_CHANNELS.write().await;
+    if let Some(channel) = channels.iter_mut().find(|c| c.channel_id == channel_id) {
+        channel.videos_uploaded = video_count;
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("Channel not found in memory"))
+    }
+}
+
 pub async fn check_playlist_for_new_videos(
     playlist_id: &str,
     es_client: &Elasticsearch,
     video_queue: &VideoQueue,
-) {
+) -> Result<i64, Box<dyn std::error::Error>> {
     let all_playlist_videos = match fetch_all_playlist_videos(playlist_id).await {
         Ok(videos) => videos,
         Err(e) => {
             error!("Failed to fetch playlist videos: {}", e);
-            return;
+            return Ok(0);
         }
     };
 
     info!("Found {} videos in playlist", all_playlist_videos.len());
 
     let mut added_videos = 0;
-    for video_id in all_playlist_videos {
+    for video_id in all_playlist_videos.clone() {
         let search_response = es_client
             .get(elasticsearch::GetParts::IndexId(
                 "youtube_videos",
@@ -492,6 +534,7 @@ pub async fn check_playlist_for_new_videos(
         }
     }
     info!("Enqueued {} videos from Playlist", added_videos);
+    Ok(all_playlist_videos.len() as i64)
 }
 
 // returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
