@@ -14,6 +14,7 @@ pub struct VideoMetadata {
     pub has_captions: bool,
     pub tags: Vec<String>,
     pub video_id: String,
+    pub playlists: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

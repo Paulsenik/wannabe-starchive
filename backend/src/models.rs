@@ -61,6 +61,7 @@ pub struct QueueItem {
     pub added_at: String,
     pub processed_at: Option<String>,
     pub error_message: Option<String>,
+    pub playlist_id: Option<String>,
 }
 
 // AdminToken FromRequest implementation
@@ -118,6 +119,7 @@ pub struct VideoMetadata {
     pub has_captions: bool,
     pub tags: Vec<String>,
     pub video_id: String,
+    pub playlists: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

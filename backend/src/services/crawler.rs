@@ -26,7 +26,7 @@ impl VideoQueue {
         }
     }
 
-    pub fn add_video(&self, video_id: String) -> String {
+    pub fn add_playlist_video(&self, video_id: String, playlist_id: Option<String>) -> String {
         if let Ok(mut queue) = self.queue.lock() {
             let item_id = format!("{}_{}", chrono::Utc::now().timestamp(), video_id);
             let item = QueueItem {
@@ -36,12 +36,17 @@ impl VideoQueue {
                 added_at: chrono::Utc::now().to_rfc3339(),
                 processed_at: None,
                 error_message: None,
+                playlist_id,
             };
             queue.push_back(item);
             item_id
         } else {
             String::new()
         }
+    }
+
+    pub fn add_video(&self, video_id: String) -> String {
+        self.add_playlist_video(video_id, None)
     }
 
     pub fn pop_next_video(&self) -> Option<QueueItem> {
@@ -174,11 +179,16 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .unwrap_or(false),
         crawl_date: chrono::Utc::now().to_rfc3339(),
         video_id: video_id.to_string(),
+        playlists: vec![],
     })
 }
 
-pub async fn process_video_metadata(es_client: &Elasticsearch, video_id: &str) {
-    let metadata = fetch_video_metadata(&video_id).await.unwrap_or_else(|e| {
+pub async fn process_video_metadata(
+    es_client: &Elasticsearch,
+    video_id: &str,
+    playlist_id: Option<String>,
+) {
+    let mut metadata = fetch_video_metadata(&video_id).await.unwrap_or_else(|e| {
         error!("Failed to fetch metadata for video {}: {:?}", video_id, e);
         VideoMetadata {
             title: String::new(),
@@ -193,8 +203,13 @@ pub async fn process_video_metadata(es_client: &Elasticsearch, video_id: &str) {
             has_captions: false,
             crawl_date: String::new(),
             video_id: String::new(),
+            playlists: vec![],
         }
     });
+
+    if playlist_id.is_some() {
+        metadata.playlists.push(playlist_id.unwrap().to_string());
+    }
 
     match es_client
         .index(IndexParts::IndexId("youtube_videos", &video_id))
@@ -303,7 +318,7 @@ pub async fn crawl_youtube_video(
     while let Some(item) = video_queue.pop_next_video() {
         info!("Processing video ID: {}", item.video_id);
 
-        process_video_metadata(es_client, &item.video_id).await;
+        process_video_metadata(es_client, &item.video_id, item.playlist_id).await;
         process_video_captions(es_client, &item.video_id).await;
 
         video_queue.mark_completed(&item.id);

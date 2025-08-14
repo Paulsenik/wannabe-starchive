@@ -91,14 +91,17 @@ pub async fn get_monitored_channels_list(es_client: &Elasticsearch) -> Vec<Monit
 pub async fn get_monitored_playlist_list(es_client: &Elasticsearch) -> Vec<MonitoredPlaylistStats> {
     let playlists = MONITORED_PlAYLISTS.read().await.clone();
 
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(playlists.len());
     for playlist in playlists {
+        let pid = playlist.playlist_id.clone();
+
         let response = es_client
             .count(elasticsearch::CountParts::Index(&["youtube_videos"]))
             .body(json!({
                 "query": {
-                    "match": {
-                        "playlist_id": playlist.playlist_id
+                    // Use term on a keyword field to test exact membership in the array
+                    "term": {
+                        "playlists.keyword": { "value": pid }
                     }
                 }
             }))
@@ -463,8 +466,13 @@ async fn check_monitored_playlists(es_client: &Elasticsearch, video_queue: &Vide
         );
 
         if playlist.active {
-            match check_playlist_for_new_videos(&playlist.playlist_id, &es_client, &video_queue)
-                .await
+            match check_playlist_for_new_videos(
+                &playlist.playlist_id,
+                &es_client,
+                &video_queue,
+                None,
+            )
+            .await
             {
                 Ok(video_count) => {
                     if let Err(e) = es_client
@@ -502,7 +510,8 @@ pub async fn check_channel_for_new_videos(
 ) {
     match get_channel_playlist_id(&channel_id).await {
         Ok(playlist_id) => {
-            match check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue).await {
+            match check_playlist_for_new_videos(&playlist_id, &es_client, &video_queue, None).await
+            {
                 Ok(count) => {
                     if let Err(e) = update_channel_video_count(channel_id, count, &es_client).await
                     {
@@ -554,6 +563,7 @@ pub async fn check_playlist_for_new_videos(
     playlist_id: &str,
     es_client: &Elasticsearch,
     video_queue: &VideoQueue,
+    source_playlist_id: Option<String>,
 ) -> Result<i64, anyhow::Error> {
     let all_playlist_videos = match fetch_all_playlist_videos(playlist_id).await {
         Ok(videos) => videos,
@@ -579,7 +589,7 @@ pub async fn check_playlist_for_new_videos(
             Ok(response) => {
                 // Video doesn't exist, add to queue
                 if !response.status_code().is_success() {
-                    video_queue.add_video(video_id.clone());
+                    video_queue.add_playlist_video(video_id.clone(), source_playlist_id.clone());
                     added_videos += 1;
                     info!("Added video to queue: {}", video_id);
                 } else {

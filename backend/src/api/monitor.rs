@@ -147,7 +147,14 @@ pub async fn check_channel(channel_id: &str, state: &State<AppState>) -> Result<
 
 #[post("/playlist/<playlist_id>/check")]
 pub async fn check_playlist(playlist_id: &str, state: &State<AppState>) -> Result<Status, Status> {
-    match check_playlist_for_new_videos(&playlist_id, &state.es_client, &state.video_queue).await {
+    match check_playlist_for_new_videos(
+        &playlist_id,
+        &state.es_client,
+        &state.video_queue,
+        Some(playlist_id.to_string()),
+    )
+    .await
+    {
         Ok(_) => Ok(Status::Ok),
         Err(e) => {
             log::error!("Failed to check playlist: {}", e);
