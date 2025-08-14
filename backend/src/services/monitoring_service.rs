@@ -1,5 +1,5 @@
 use crate::api::{MonitoredChannelStats, MonitoredPlaylistStats};
-use crate::config::YOUTUBE_API_KEY;
+use crate::config::{MONITOR_CHECK_SCHEDULE, YOUTUBE_API_KEY};
 use crate::models::{MonitoredChannel, MonitoredPlaylist};
 use crate::services::crawler::VideoQueue;
 use elasticsearch::{DeleteParts, Elasticsearch, SearchParts};
@@ -29,7 +29,7 @@ pub async fn setup_monitoring(
     let es_client_clone = es_client.clone();
     let queue_clone = video_queue.clone();
 
-    let monitor_job = Job::new_async("0 */10 * * * *", move |_uuid, _l| {
+    let monitor_job = Job::new_async(MONITOR_CHECK_SCHEDULE.as_str(), move |_uuid, _l| {
         let es_client = es_client_clone.clone();
         let queue = queue_clone.clone();
         Box::pin(async move {
@@ -454,6 +454,7 @@ async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &Video
     info!("Finished checking monitored channels!");
 }
 
+// FIXME: Causes lock!
 async fn check_monitored_playlists(es_client: &Elasticsearch, video_queue: &VideoQueue) {
     info!("Checking monitored playlists for new videos...");
 

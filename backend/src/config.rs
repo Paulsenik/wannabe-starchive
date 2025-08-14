@@ -29,6 +29,10 @@ lazy_static! {
         .unwrap_or_else(|_| "1".to_string())
         .parse::<i32>()
         .unwrap_or(1);
+    pub static ref MONITOR_CHECK_SCHEDULE: String =
+        env::var("MONITOR_CHECK_SCHEDULE").unwrap_or_else(|_| "0 */10 * * * *".to_string());
+    pub static ref CRAWL_QUEUE_SCHEDULE: String =
+        env::var("CRAWL_QUEUE_SCHEDULE").unwrap_or_else(|_| "*/30 * * * * *".to_string());
 }
 
 pub fn init_logger() {
@@ -50,7 +54,7 @@ pub fn create_elasticsearch_client() -> Result<Elasticsearch> {
     Ok(Elasticsearch::new(transport))
 }
 
-pub async fn setup_scheduler(
+pub async fn setup_queue_scheduler(
     es_client: Elasticsearch,
     video_queue: Arc<VideoQueue>,
 ) -> Result<JobScheduler> {
@@ -59,7 +63,7 @@ pub async fn setup_scheduler(
     let video_queue_clone = video_queue.clone();
     let craw_burst_max = CRAWL_BURST_MAX.clone();
 
-    let crawl_job = Job::new_async("*/30 * * * * *", move |_uuid, _l| {
+    let crawl_job = Job::new_async(CRAWL_QUEUE_SCHEDULE.as_str(), move |_uuid, _l| {
         let es_client_for_job = es_client_clone.clone();
         let queue = video_queue_clone.clone();
         Box::pin(async move {
@@ -83,7 +87,7 @@ pub async fn create_app_state() -> Result<AppState> {
 
     create_es_index(&es_client).await;
 
-    let scheduler = setup_scheduler(es_client.clone(), video_queue.clone()).await?;
+    let scheduler = setup_queue_scheduler(es_client.clone(), video_queue.clone()).await?;
 
     let es_client_arc = Arc::new(es_client.clone());
 

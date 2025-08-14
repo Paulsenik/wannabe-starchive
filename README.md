@@ -32,13 +32,15 @@ touch backend/.env
 `.env`-Variables
 
 ```toml
-ELASTICSEARCH_URL = http://localhost:9200
+ELASTICSEARCH_URL = "http://localhost:9200"
 # https://console.cloud.google.com/apis/api/youtube.googleapis.com/credentials
-YOUTUBE_API_KEY = YOUR-GOOGLE-API-KEY
+YOUTUBE_API_KEY = "YOUR-GOOGLE-API-KEY"
 
 # Optional
-ADMIN_TOKEN = BENE_KANN_KEIN_COUNTER_STRIKE
+ADMIN_TOKEN = "BENE_KANN_KEIN_COUNTER_STRIKE"
 CRAWL_BURST_MAX = 1
+MONITOR_CHECK_SCHEDULE = "0 */10 * * * *"
+CRAWL_QUEUE_SCHEDULE = "*/30 * * * * *"
 ```
 
 Deploy:
