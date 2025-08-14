@@ -195,7 +195,6 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
                                                     (*channels).iter().map(|channel| {
                                                         let channel_id = channel.channel_id.clone();
                                                         let on_delete = on_delete_channel.clone();
-                                                        let channel_link = format!("https://www.youtube.com/channel/{}", &channel.channel_id);
 
                                                         html! {
                                                             <tr>

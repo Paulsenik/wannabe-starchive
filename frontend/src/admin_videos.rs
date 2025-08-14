@@ -130,7 +130,6 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                 (*videos).iter().map(|video| {
                                                     let video_id = video.video_id.clone();
                                                     let on_delete = on_delete_video.clone();
-                                                    let channel_link = format!("https://www.youtube.com/channel/{}", &video.channel_id);
 
                                                     html! {
                                                         <tr key={video.video_id.clone()}>
