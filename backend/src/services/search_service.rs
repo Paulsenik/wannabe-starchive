@@ -10,16 +10,36 @@ const DEFAULT_NUM_FRAGMENTS: usize = 1;
 const DEFAULT_BOUNDARY_MAX_SCAN: usize = 50;
 const DEFAULT_NO_MATCH_SIZE: usize = 250;
 
-/// Captions to include before/after the anchor
+/// Neighbor settings
 const DEFAULT_NEIGHBORS_BEFORE: usize = 2;
 const DEFAULT_NEIGHBORS_AFTER: usize = 2;
-
-/// Max combined snippet length
 const MAX_COMBINED_CHARS: usize = 800;
 
 /// HTML tags for highlighting
 const PRE_TAG: &str = "<strong>";
 const POST_TAG: &str = "</strong>";
+
+/// Search options for different search strategies
+#[derive(Debug, Clone)]
+pub struct SearchOptions {
+    pub search_type: SearchType,
+    pub fuzzy_distance: Option<String>, // "AUTO", "1", "2", etc.
+}
+
+#[derive(Debug, Clone)]
+pub enum SearchType {
+    Natural, // Exact phrase + basic stemming
+    Wide,    // Flexible word matching + fuzzy + stemming
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            search_type: SearchType::Natural,
+            fuzzy_distance: None,
+        }
+    }
+}
 
 pub async fn search_captions(
     es_client: &Elasticsearch,
@@ -27,12 +47,30 @@ pub async fn search_captions(
     from: usize,
     size: usize,
 ) -> Result<Vec<SearchResult>> {
-    let query_body = build_search_query(
+    search_captions_with_options(
+        es_client,
+        query_string,
+        from,
+        size,
+        SearchOptions::default(),
+    )
+    .await
+}
+
+pub async fn search_captions_with_options(
+    es_client: &Elasticsearch,
+    query_string: &str,
+    from: usize,
+    size: usize,
+    options: SearchOptions,
+) -> Result<Vec<SearchResult>> {
+    let query_body = build_search_query_by_type(
         query_string,
         from,
         size,
         DEFAULT_FRAGMENT_SIZE,
         DEFAULT_NUM_FRAGMENTS,
+        &options,
     );
 
     let response = es_client
@@ -64,39 +102,132 @@ pub async fn search_captions(
         .unwrap_or_default();
 
         // Build neighbor text blocks
-        let prev_text = join_neighbor_text_prev(&prev);
-        let next_text = join_neighbor_text_next(&next);
+        let prev_text = join_neighbor_text(&prev);
+        let next_text = join_neighbor_text(&next);
 
-        // Combine: prev + highlighted anchor (res.snippet_html) + next
-        let combined = stitch_with_neighbors(&prev_text, &res.snippet_html, &next_text);
+        // Combine with improved sentence awareness
+        let combined = stitch_with_neighbors_enhanced(&prev_text, &res.snippet_html, &next_text);
 
         // Trim to a max length while keeping the highlight in view
         res.snippet_html =
             truncate_around_highlight(&combined, MAX_COMBINED_CHARS, PRE_TAG, POST_TAG);
-
-        res.start_time = prev.first().map(|c| c.start_time).unwrap_or(res.start_time);
     }
 
     Ok(results)
 }
 
-#[allow(dead_code)]
-fn build_search_query(
+fn build_search_query_by_type(
     query_string: &str,
     from: usize,
     size: usize,
     fragment_size: usize,
     number_of_fragments: usize,
+    options: &SearchOptions,
 ) -> Value {
-    // Primary query: multi_match with operator "and" for intent-like matches
-    let main_query = json!({
-        "multi_match": {
-            "query": query_string,
-            "fields": ["text"],
-            "operator": "and",
-            "type": "best_fields"
+    let main_query = match options.search_type {
+        SearchType::Natural => {
+            json!({
+                "bool": {
+                    "should": [
+                        // Exact phrase match (highest priority)
+                        {
+                            "match_phrase": {
+                                "text": {
+                                    "query": query_string,
+                                    "boost": 3.0
+                                }
+                            }
+                        },
+                        // Exact phrase match on stemmed field (for basic stemming)
+                        {
+                            "match_phrase": {
+                                "text.stemmed": {
+                                    "query": query_string,
+                                    "boost": 2.0,
+                                    "slop": 0  // No word reordering allowed
+                                }
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            })
         }
-    });
+        SearchType::Wide => {
+            let fuzzy_setting = options.fuzzy_distance.as_deref().unwrap_or("AUTO");
+
+            json!({
+                "bool": {
+                    "should": [
+                        // Exact phrase match (highest boost)
+                        {
+                            "match_phrase": {
+                                "text": {
+                                    "query": query_string,
+                                    "boost": 4.0
+                                }
+                            }
+                        },
+                        // Phrase with some slop (words can be reordered/separated)
+                        {
+                            "match_phrase": {
+                                "text": {
+                                    "query": query_string,
+                                    "slop": 3,  // Allow up to 3 words between terms
+                                    "boost": 3.0
+                                }
+                            }
+                        },
+                        // All words must be present (any order) - stemmed
+                        {
+                            "multi_match": {
+                                "query": query_string,
+                                "fields": ["text^2", "text.stemmed"],
+                                "type": "best_fields",
+                                "operator": "and",  // All words must be present
+                                "boost": 2.5
+                            }
+                        },
+                        // All words must be present with fuzzy matching
+                        {
+                            "multi_match": {
+                                "query": query_string,
+                                "fields": ["text^1.5", "text.stemmed"],
+                                "type": "best_fields",
+                                "operator": "and",
+                                "fuzziness": fuzzy_setting,
+                                "boost": 2.0
+                            }
+                        },
+                        // At least most words present (for partial matches)
+                        {
+                            "multi_match": {
+                                "query": query_string,
+                                "fields": ["text", "text.stemmed"],
+                                "type": "best_fields",
+                                "operator": "or",
+                                "minimum_should_match": "75%",  // At least 75% of words
+                                "boost": 1.5
+                            }
+                        },
+                        // Fuzzy matching for typos (lowest priority)
+                        {
+                            "multi_match": {
+                                "query": query_string,
+                                "fields": ["text", "text.stemmed"],
+                                "type": "best_fields",
+                                "operator": "or",
+                                "fuzziness": fuzzy_setting,
+                                "minimum_should_match": "50%",
+                                "boost": 1.0
+                            }
+                        }
+                    ],
+                    "minimum_should_match": 1
+                }
+            })
+        }
+    };
 
     json!({
         "from": from,
@@ -113,44 +244,7 @@ fn build_search_query(
                     "fragment_size": fragment_size,
                     "order": "score",
                     "boundary_scanner": "sentence",
-                    "boundary_max_scan": DEFAULT_BOUNDARY_MAX_SCAN,
-                    "no_match_size": DEFAULT_NO_MATCH_SIZE,
-                    // >>> Keep highlight logic aligned with the main query
-                    "highlight_query": main_query,
-                    "fragmenter": "simple", // For more predictable results
-                    "max_analyzed_offset": 1000000 // Allow highlighting in longer texts
-                }
-            },
-            "require_field_match": true
-        },
-        "sort": [
-            { "_score": { "order": "desc" } },
-            { "start_time": { "order": "asc" } }
-        ]
-    })
-}
-
-fn build_exact_search_query(query_string: &str, from: usize, size: usize) -> Value {
-    // Optional alternative: enforce phrase matching for tighter highlights
-    let main_query = json!({
-        "match_phrase": { "text": { "query": query_string } }
-    });
-
-    json!({
-        "from": from,
-        "size": size,
-        "query": main_query,
-        "_source": ["video_id", "text", "start_time", "end_time"],
-        "highlight": {
-            "pre_tags": [PRE_TAG],
-            "post_tags": [POST_TAG],
-            "fields": {
-                "text": {
-                    "type": "unified",
-                    "number_of_fragments": DEFAULT_NUM_FRAGMENTS,
-                    "fragment_size": DEFAULT_FRAGMENT_SIZE,
-                    "order": "score",
-                    "boundary_scanner": "sentence",
+                    "boundary_chars": ".,!?;",
                     "boundary_max_scan": DEFAULT_BOUNDARY_MAX_SCAN,
                     "no_match_size": DEFAULT_NO_MATCH_SIZE,
                     "highlight_query": main_query,
@@ -193,7 +287,6 @@ fn parse_search_result(source: &Map<String, Value>, hit: &Value) -> SearchResult
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .or_else(|| {
-            // Fallback: if no highlight, use the full raw text
             source
                 .get("text")
                 .and_then(|v| v.as_str())
@@ -241,18 +334,13 @@ async fn fetch_neighbors_for_hit(
     before: usize,
     after: usize,
 ) -> Result<(Vec<Caption>, Vec<Caption>)> {
-    // Strategy: Find all captions for the video around the anchor timeframe
-    // Then slice out the correct neighbors to avoid gaps
-
-    // Calculate a reasonable window around the anchor to fetch captions
-    // Assuming captions are typically 2-6 seconds each, fetch a wider window
-    let window_seconds = ((before + after) as f64 * 6.0).max(30.0); // At least 30 seconds window
+    let window_seconds = ((before + after) as f64 * 6.0).max(30.0);
     let start_window = anchor_start_time - window_seconds;
     let end_window = anchor_end_time + window_seconds;
 
     let window_query = json!({
         "_source": ["text", "start_time", "end_time"],
-        "size": ((before + after + 1) * 3).max(50), // Fetch more than needed to ensure coverage
+        "size": ((before + after + 1) * 3).max(50),
         "sort": [{ "start_time": { "order": "asc" } }],
         "query": {
             "bool": {
@@ -276,10 +364,8 @@ async fn fetch_neighbors_for_hit(
 
     let all_captions = parse_neighbor_hits(resp);
 
-    // Find the anchor caption in the results
     let mut anchor_index = None;
     for (i, caption) in all_captions.iter().enumerate() {
-        // Match by start_time (since that's unique per video)
         if (caption.start_time - anchor_start_time).abs() < 0.1 {
             anchor_index = Some(i);
             break;
@@ -288,7 +374,6 @@ async fn fetch_neighbors_for_hit(
 
     let (prev_captions, next_captions) = match anchor_index {
         Some(anchor_idx) => {
-            // Get neighbors before the anchor
             let prev_start = if anchor_idx >= before {
                 anchor_idx - before
             } else {
@@ -296,7 +381,6 @@ async fn fetch_neighbors_for_hit(
             };
             let prev_captions = all_captions[prev_start..anchor_idx].to_vec();
 
-            // Get neighbors after the anchor
             let next_start = anchor_idx + 1;
             let next_end = (next_start + after).min(all_captions.len());
             let next_captions = all_captions[next_start..next_end].to_vec();
@@ -304,7 +388,6 @@ async fn fetch_neighbors_for_hit(
             (prev_captions, next_captions)
         }
         None => {
-            // Fallback: couldn't find exact anchor, split around the time
             let mut prev_captions = Vec::new();
             let mut next_captions = Vec::new();
 
@@ -316,7 +399,6 @@ async fn fetch_neighbors_for_hit(
                 }
             }
 
-            // Take the last N previous and first N next
             if prev_captions.len() > before {
                 prev_captions = prev_captions[prev_captions.len() - before..].to_vec();
             }
@@ -354,7 +436,6 @@ fn parse_neighbor_hits(resp: Value) -> Vec<Caption> {
                         .unwrap_or(0.0);
                     let end_time = src.get("end_time").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-                    // Extract video_id from the document or use placeholder
                     let video_id = src
                         .get("video_id")
                         .and_then(|v| v.as_str())
@@ -373,29 +454,51 @@ fn parse_neighbor_hits(resp: Value) -> Vec<Caption> {
         .unwrap_or_default()
 }
 
-fn join_neighbor_text_prev(prev: &Vec<Caption>) -> String {
-    // prev is already in chronological order from the window query
-    let mut texts: Vec<&str> = prev.iter().map(|d| d.text.as_str()).collect();
-    texts.retain(|s| !s.trim().is_empty());
+fn join_neighbor_text(prev: &Vec<Caption>) -> String {
+    let texts: Vec<String> = prev
+        .iter()
+        .map(|d| clean_caption_text(&d.text))
+        .filter(|s| !s.trim().is_empty())
+        .collect();
     texts.join(" ")
 }
 
-fn join_neighbor_text_next(next: &Vec<Caption>) -> String {
-    // next is already in chronological order from the window query
-    let mut texts: Vec<&str> = next.iter().map(|d| d.text.as_str()).collect();
-    texts.retain(|s| !s.trim().is_empty());
-    texts.join(" ")
+fn clean_caption_text(text: &str) -> String {
+    text.trim()
+        .replace("  ", " ") // Collapse multiple spaces
+        .replace(" ,", ",") // Fix spacing around punctuation
+        .replace(" .", ".")
+        .replace(" ?", "?")
+        .replace(" !", "!")
+        .to_string()
 }
 
-fn stitch_with_neighbors(prev: &str, anchor_html: &str, next: &str) -> String {
+/// Enhanced stitching with better sentence awareness
+fn stitch_with_neighbors_enhanced(prev: &str, anchor_html: &str, next: &str) -> String {
     let mut parts = Vec::new();
+
     if !prev.is_empty() {
-        parts.push(prev.trim().to_string());
+        let prev_clean = clean_caption_text(prev);
+        // Only add ellipsis if previous doesn't end with punctuation
+        if prev_clean.ends_with(&['.', '!', '?', ':'][..]) {
+            parts.push(prev_clean);
+        } else {
+            parts.push(format!("…{}", prev_clean));
+        }
     }
-    parts.push(anchor_html.trim().to_string());
+
+    parts.push(clean_caption_text(anchor_html));
+
     if !next.is_empty() {
-        parts.push(next.trim().to_string());
+        let next_clean = clean_caption_text(next);
+        // Only add ellipsis if next doesn't start with punctuation
+        if next_clean.starts_with(&['.', ',', '!', '?', ':'][..]) {
+            parts.push(next_clean);
+        } else {
+            parts.push(format!("{}…", next_clean));
+        }
     }
+
     parts.join(" ")
 }
 
@@ -404,7 +507,6 @@ fn truncate_around_highlight(s: &str, max_chars: usize, pre_tag: &str, post_tag:
         return s.to_string();
     }
 
-    // Try to find the highlighted region
     if let Some(pre_idx) = s.find(pre_tag) {
         let after_pre = &s[pre_idx + pre_tag.len()..];
         if let Some(rel_post_idx) = after_pre.find(post_tag) {
@@ -414,20 +516,17 @@ fn truncate_around_highlight(s: &str, max_chars: usize, pre_tag: &str, post_tag:
             let total_chars = s.chars().count();
             let s_chars: Vec<char> = s.chars().collect();
 
-            // Calculate character positions
             let hl_start_chars = s[..hl_start].chars().count();
             let hl_chars = s[hl_start..hl_end].chars().count();
             let hl_end_chars = hl_start_chars + hl_chars;
 
-            // Be more generous with context around the highlight
             let remaining = max_chars.saturating_sub(hl_chars);
             let side = remaining / 2;
-            let extra_buffer = 20; // Extra characters to ensure we don't cut mid-word
+            let extra_buffer = 20;
 
             let mut prefix_take = (side + extra_buffer).min(hl_start_chars);
             let mut suffix_take = (side + extra_buffer).min(total_chars - hl_end_chars);
 
-            // Adjust if we have room to expand one side
             let total_take = prefix_take + hl_chars + suffix_take;
             if total_take < max_chars {
                 let extra = max_chars - total_take;
@@ -445,26 +544,42 @@ fn truncate_around_highlight(s: &str, max_chars: usize, pre_tag: &str, post_tag:
             let start_char = hl_start_chars - prefix_take;
             let end_char = (hl_end_chars + suffix_take).min(total_chars);
 
-            // Try to break at word boundaries
             let mut actual_start = start_char;
             let mut actual_end = end_char;
 
-            // Find word boundary for start (look backwards for space)
+            // Find sentence boundaries for more natural breaks
             if start_char > 0 {
-                for i in (0..=start_char.min(start_char + 20)).rev() {
-                    if i < s_chars.len() && (s_chars[i] == ' ' || s_chars[i] == '\n') {
-                        actual_start = i + 1;
+                for i in (0..=start_char.min(start_char + 30)).rev() {
+                    if i < s_chars.len() && matches!(s_chars[i], '.' | '!' | '?') {
+                        actual_start = (i + 1).min(s_chars.len() - 1);
                         break;
+                    }
+                }
+                // Fallback to word boundary
+                if actual_start == start_char {
+                    for i in (0..=start_char.min(start_char + 20)).rev() {
+                        if i < s_chars.len() && s_chars[i] == ' ' {
+                            actual_start = i + 1;
+                            break;
+                        }
                     }
                 }
             }
 
-            // Find word boundary for end (look forwards for space)
             if end_char < total_chars {
-                for i in end_char..=(end_char + 20).min(total_chars - 1) {
-                    if i < s_chars.len() && (s_chars[i] == ' ' || s_chars[i] == '\n') {
-                        actual_end = i;
+                for i in end_char..=(end_char + 30).min(total_chars - 1) {
+                    if i < s_chars.len() && matches!(s_chars[i], '.' | '!' | '?') {
+                        actual_end = (i + 1).min(s_chars.len());
                         break;
+                    }
+                }
+                // Fallback to word boundary
+                if actual_end == end_char {
+                    for i in end_char..=(end_char + 20).min(total_chars - 1) {
+                        if i < s_chars.len() && s_chars[i] == ' ' {
+                            actual_end = i;
+                            break;
+                        }
                     }
                 }
             }
@@ -473,17 +588,16 @@ fn truncate_around_highlight(s: &str, max_chars: usize, pre_tag: &str, post_tag:
 
             let mut with_ellipses = trimmed;
             if actual_start > 0 {
-                with_ellipses = format!("… {}", with_ellipses.trim_start());
+                with_ellipses = format!("…{}", with_ellipses.trim_start());
             }
             if actual_end < total_chars {
-                with_ellipses = format!("{} …", with_ellipses.trim_end());
+                with_ellipses = format!("{}…", with_ellipses.trim_end());
             }
 
             return with_ellipses;
         }
     }
 
-    // Fallback: simple head truncation with ellipsis
     let prefix: String = s.chars().take(max_chars.saturating_sub(2)).collect();
-    format!("{} …", prefix.trim_end())
+    format!("{}…", prefix.trim_end())
 }
