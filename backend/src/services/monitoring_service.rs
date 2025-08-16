@@ -33,14 +33,8 @@ pub async fn setup_monitoring(
         let es_client = es_client_clone.clone();
         let queue = queue_clone.clone();
         Box::pin(async move {
-            if let Err(e) = tokio::spawn(async move {
-                check_monitored_channels(&es_client, &queue).await;
-                check_monitored_playlists(&es_client, &queue).await;
-            })
-            .await
-            {
-                error!("Monitoring job failed: {}", e);
-            }
+            check_monitored_channels(&es_client, &queue).await;
+            check_monitored_playlists(&es_client, &queue).await;
         })
     })?;
 
@@ -439,68 +433,73 @@ async fn load_monitored_playlists(es_client: &Elasticsearch) {
 async fn check_monitored_channels(es_client: &Elasticsearch, video_queue: &VideoQueue) {
     info!("Checking monitored channels for new videos...");
 
-    let channels = MONITORED_CHANNELS.read().await;
+    // Snapshot MONITORED_CHANNELS and drop the lock immediately
+    let channels: Vec<(String, bool, String)> = {
+        let guard = MONITORED_CHANNELS.read().await;
+        guard
+            .iter()
+            .map(|c| (c.channel_id.clone(), c.active, c.channel_name.clone()))
+            .collect()
+    };
 
-    for channel in channels.iter() {
+    for (channel_id, active, channel_name) in channels {
         info!(
             "Checking channel: {} ({}) - active: {}",
-            channel.channel_name, channel.channel_id, channel.active
+            channel_name, channel_id, active
         );
 
-        if channel.active {
-            check_channel_for_new_videos(&channel.channel_id, &es_client, &video_queue).await;
+        if active {
+            check_channel_for_new_videos(&channel_id, &es_client, &video_queue).await;
         }
     }
     info!("Finished checking monitored channels!");
 }
 
-// FIXME: Causes lock!
 async fn check_monitored_playlists(es_client: &Elasticsearch, video_queue: &VideoQueue) {
     info!("Checking monitored playlists for new videos...");
 
-    let playlists = MONITORED_PlAYLISTS.read().await;
+    // Snapshot MONITORED_PlAYLISTS and drop the lock immediately
+    let playlists_snapshot: Vec<(String, bool, String)> = {
+        let guard = MONITORED_PlAYLISTS.read().await;
+        guard
+            .iter()
+            .map(|p| (p.playlist_id.clone(), p.active, p.playlist_name.clone()))
+            .collect()
+    };
 
-    for playlist in playlists.iter() {
+    for (playlist_id, active, playlist_name) in playlists_snapshot {
         info!(
             "Checking playlist: {} ({}) - active: {}",
-            playlist.playlist_name, playlist.playlist_id, playlist.active
+            playlist_name, playlist_id, active
         );
 
-        if playlist.active {
-            match check_playlist_for_new_videos(
-                &playlist.playlist_id,
-                &es_client,
-                &video_queue,
-                None,
-            )
-            .await
-            {
-                Ok(video_count) => {
-                    if let Err(e) = es_client
-                        .update(elasticsearch::UpdateParts::IndexId(
-                            "monitored_playlists",
-                            &playlist.playlist_id,
-                        ))
-                        .body(json!({
-                            "doc": {
-                                "videos_added": video_count
-                            }
-                        }))
-                        .send()
-                        .await
-                    {
-                        error!("Failed to update playlist video count: {}", e);
-                    }
+        if !active {
+            continue;
+        }
+
+        match check_playlist_for_new_videos(&playlist_id, es_client, video_queue, None).await {
+            Ok(video_count) => {
+                if let Err(e) = es_client
+                    .update(elasticsearch::UpdateParts::IndexId(
+                        "monitored_playlists",
+                        &playlist_id,
+                    ))
+                    .body(json!({ "doc": { "videos_added": video_count } }))
+                    .send()
+                    .await
+                {
+                    error!("Failed to update playlist video count: {}", e);
                 }
-                Err(e) => {
-                    error!(
-                        "Error checking playlist {} for new videos: {}",
-                        playlist.playlist_id, e
-                    );
-                }
+            }
+            Err(e) => {
+                error!(
+                    "Error checking playlist {} for new videos: {}",
+                    playlist_id, e
+                );
             }
         }
     }
+
     info!("Finished checking monitored playlists!");
 }
 
