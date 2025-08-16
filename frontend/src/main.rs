@@ -256,13 +256,7 @@ fn search_result_item(props: &SearchResultItemProps) -> Html {
                    class="ml-2 text-blue-600 hover:underline">
                 {format!("{} ↗ ", format_timestamp(props.result.start_time))}
                 </a>
-                {
-                    if let Some(highlight) = &props.result.highlighted_text {
-                        Html::from_html_unchecked(AttrValue::from(highlight.clone()))
-                    } else {
-                        html! { &props.result.text }
-                    }
-                }
+            { Html::from_html_unchecked(AttrValue::from(props.result.snippet_html.clone())) }
             </p>
         </div>
     }

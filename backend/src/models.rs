@@ -99,10 +99,10 @@ pub struct Caption {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub video_id: String,
-    pub text: String,
     pub start_time: f64,
     pub end_time: f64,
-    pub highlighted_text: Option<String>, // For displaying highlighted matches TODO remove
+    /// Combined snippet with neighbors included. Highlight tags are preserved on the anchor snippet.
+    pub snippet_html: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

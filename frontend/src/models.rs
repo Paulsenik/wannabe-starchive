@@ -20,10 +20,9 @@ pub struct VideoMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchResult {
     pub video_id: String,
-    pub text: String,
     pub start_time: f64,
     pub end_time: f64,
-    pub highlighted_text: Option<String>,
+    pub snippet_html: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
