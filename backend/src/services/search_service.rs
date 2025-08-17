@@ -122,7 +122,7 @@ pub async fn search_captions_with_options(
     Ok(all_results)
 }
 
-/// Get unique video IDs with video-level pagination
+/// Get unique video IDs with video-level pagination and deterministic sorting
 async fn get_paginated_video_ids(
     es_client: &Elasticsearch,
     query_string: &str,
@@ -130,55 +130,23 @@ async fn get_paginated_video_ids(
     size: usize,
     options: &SearchOptions,
 ) -> Result<Vec<String>> {
+    // Step 1: Get all matching video IDs with their caption scores
     let main_query = build_main_query_by_type(query_string, options);
 
-    // Choose aggregation order based on sort option
-    let agg_order = match options.sort_by {
-        SortBy::Relevance => {
-            json!({
-                "avg_score": "desc"  // Sort by average score of all matches in video
-            })
-        }
-        SortBy::CaptionMatches => {
-            json!({
-                "_count": "desc"  // Sort by number of matching captions
-            })
-        }
-        // For other sort types, we'll fall back to max score for now
-        // You could extend this to join with video metadata for upload date, views, etc.
-        _ => {
-            json!({
-                "max_score": "desc"
-            })
-        }
-    };
-
     let query_body = json!({
-        "size": 0,  // We don't need the hits, just the aggregation
+        "size": 0,
         "query": main_query,
         "aggs": {
             "unique_videos": {
                 "terms": {
                     "field": "video_id",
-                    "size": from + size + 50,  // Get extra to ensure we have enough after sorting
-                    "order": agg_order
+                    "size": 10000,  // Get all matching videos first
+                    "order": { "_key": "asc" }  // Temporary ordering for consistency
                 },
                 "aggs": {
-                    "max_score": {
-                        "max": {
-                            "script": "_score"
-                        }
-                    },
-                    "avg_score": {
-                        "avg": {
-                            "script": "_score"
-                        }
-                    },
-                    "total_score": {
-                        "sum": {
-                            "script": "_score"
-                        }
-                    }
+                    "max_score": { "max": { "script": "_score" } },
+                    "avg_score": { "avg": { "script": "_score" } },
+                    "match_count": { "value_count": { "field": "video_id" } }
                 }
             }
         }
@@ -191,28 +159,55 @@ async fn get_paginated_video_ids(
         .await
         .context("Elasticsearch aggregation request failed")?
         .json::<Value>()
-        .await
-        .context("Failed to parse Elasticsearch aggregation response as JSON")?;
+        .await?;
 
-    // Extract video IDs from aggregation, applying pagination
+    // Step 2: Extract video scoring data
     let empty_vec = vec![];
-    let buckets = response
-        .get("aggregations")
-        .and_then(|aggs| aggs.get("unique_videos"))
-        .and_then(|unique_videos| unique_videos.get("buckets"))
-        .and_then(|buckets| buckets.as_array())
+    let buckets = response["aggregations"]["unique_videos"]["buckets"]
+        .as_array()
         .unwrap_or(&empty_vec);
 
-    let video_ids: Vec<String> = buckets
+    let mut video_scores: Vec<(String, f64, f64, i64)> = buckets
         .iter()
-        .skip(from) // Apply video-level pagination
-        .take(size)
         .filter_map(|bucket| {
-            bucket
-                .get("key")
-                .and_then(|key| key.as_str())
-                .map(|s| s.to_string())
+            let video_id = bucket["key"].as_str()?.to_string();
+            let avg_score = bucket["avg_score"]["value"].as_f64().unwrap_or(0.0);
+            let max_score = bucket["max_score"]["value"].as_f64().unwrap_or(0.0);
+            let match_count = bucket["doc_count"].as_i64().unwrap_or(0);
+            Some((video_id, avg_score, max_score, match_count))
         })
+        .collect();
+
+    // Step 3: Sort deterministically based on multiple criteria
+    video_scores.sort_by(|a, b| {
+        match options.sort_by {
+            SortBy::Relevance => {
+                // Primary: avg_score desc, Secondary: video_id asc
+                b.1.partial_cmp(&a.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            }
+            SortBy::CaptionMatches => {
+                // Primary: match_count desc, Secondary: avg_score desc, Tertiary: video_id asc
+                b.3.cmp(&a.3)
+                    .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .then_with(|| a.0.cmp(&b.0))
+            }
+            _ => {
+                // Fallback: max_score desc, video_id asc
+                b.2.partial_cmp(&a.2)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            }
+        }
+    });
+
+    // Step 4: Apply pagination
+    let video_ids: Vec<String> = video_scores
+        .into_iter()
+        .skip(from)
+        .take(size)
+        .map(|(video_id, _, _, _)| video_id)
         .collect();
 
     Ok(video_ids)
