@@ -2,6 +2,7 @@ use crate::models::{Caption, SearchResult};
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, SearchParts};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 /// Fragmenting
@@ -24,6 +25,24 @@ const POST_TAG: &str = "</strong>";
 pub struct SearchOptions {
     pub search_type: SearchType,
     pub fuzzy_distance: Option<String>, // "AUTO", "1", "2", etc.
+    pub sort_by: SortBy,
+    pub sort_order: SortOrder,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SortBy {
+    Relevance, // default sort after search-score
+    UploadDate,
+    Duration,
+    Views,
+    Likes,
+    CaptionMatches, // amount of matches per video
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SortOrder {
+    Asc,
+    Desc,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +56,8 @@ impl SearchOptions {
         Self {
             search_type: SearchType::Natural,
             fuzzy_distance: None,
+            sort_by: SortBy::Relevance,
+            sort_order: SortOrder::Asc,
         }
     }
 
@@ -44,6 +65,8 @@ impl SearchOptions {
         Self {
             search_type: SearchType::Wide,
             fuzzy_distance: Some("2".to_string()),
+            sort_by: SortBy::Relevance,
+            sort_order: SortOrder::Asc,
         }
     }
 }
