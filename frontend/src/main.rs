@@ -379,23 +379,33 @@ pub fn results_list(props: &ResultsListProps) -> Html {
         };
     }
 
-    let mut grouped_results: std::collections::HashMap<String, Vec<&SearchResult>> =
-        std::collections::HashMap::new();
+    let mut last_video = String::new();
+    let mut current_group = Vec::new();
+    let mut grouped_videos = Vec::new();
+
+    // Group results while preserving video order from backend
     for result in props.results.iter() {
-        grouped_results
-            .entry(result.video_id.clone())
-            .or_insert_with(Vec::new)
-            .push(result);
+        if result.video_id != last_video {
+            if !current_group.is_empty() {
+                grouped_videos.push((last_video.clone(), current_group));
+                current_group = Vec::new();
+            }
+            last_video = result.video_id.clone();
+        }
+        current_group.push(result);
+    }
+    if !current_group.is_empty() {
+        grouped_videos.push((last_video, current_group));
     }
 
     html! {
         <div class="mt-8 space-y-6">
-            { for grouped_results.iter().map(|(video_id, results)| {
+            { for grouped_videos.into_iter().map(|(video_id, results)| {
                 let mut sorted_results = results.iter().map(|&r| r.clone()).collect::<Vec<_>>();
                 sorted_results.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
                 html! {
                     <VideoResults
-                        video_id={video_id.clone()}
+                        video_id={video_id}
                         results={sorted_results}
                     />
                 }
