@@ -6,9 +6,10 @@ mod admin_videos;
 mod models;
 mod router;
 
-use crate::models::{SearchResult, VideoMetadata};
+use crate::models::{FilterParameter, SearchResult, VideoMetadata};
 use crate::router::{switch, Route};
 use gloo_net::http::Request;
+use std::iter::Filter;
 use web_sys::console;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
@@ -66,19 +67,19 @@ fn format_iso8601_duration(duration: &str) -> String {
 
 pub async fn execute_search(
     query: String,
+    search_type: &str,
     search_results: UseStateHandle<Vec<SearchResult>>,
     error_message: UseStateHandle<Option<String>>,
     loading: UseStateHandle<bool>,
 ) {
-    // Update URL with query parameter
     if let Some(window) = web_sys::window() {
         if let Ok(history) = window.history() {
-            let url = format!("/?q={}", query);
+            let url = format!("/?q={}&t={}", query, search_type);
             let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
         }
     }
 
-    let response = perform_search_request(&query).await;
+    let response = perform_search_request(&query, &search_type).await;
     handle_search_response(response, &search_results, &error_message).await;
     loading.set(false);
 }
@@ -123,9 +124,12 @@ async fn get_raw_video_metadata(
     Request::get(&url).send().await
 }
 
-async fn perform_search_request(query: &str) -> Result<gloo_net::http::Response, gloo_net::Error> {
+async fn perform_search_request(
+    query: &str,
+    search_type: &str,
+) -> Result<gloo_net::http::Response, gloo_net::Error> {
     let backend_url = "http://localhost:8000";
-    let url = format!("{backend_url}/search?q={query}");
+    let url = format!("{backend_url}/search?q={query}&search_type={search_type}");
     Request::get(&url).send().await
 }
 
@@ -145,6 +149,27 @@ pub fn get_query_param() -> Option<String> {
                 None => console::log_1(&"query-param: Not found".into()),
             }
             result
+        })
+}
+
+pub fn get_filter_param() -> Option<FilterParameter> {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
+        .and_then(|params| {
+            let mut search_type = "natural".to_string();
+            match &params.get("t") {
+                Some(val) => {
+                    search_type = match val.as_str() {
+                        "natural" => "natural".to_string(),
+                        "wide" => "wide".to_string(),
+                        _ => "natural".to_string(),
+                    };
+                    console::log_1(&format!("search-type: {}", search_type).into());
+                }
+                None => console::log_1(&"search-type: Not found".into()),
+            }
+            Some(FilterParameter { search_type })
         })
 }
 

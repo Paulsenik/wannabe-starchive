@@ -1,36 +1,49 @@
-use log::info;
+use crate::models::SearchResult;
+use crate::services::search_service;
+use crate::services::search_service::SearchOptions;
+use crate::AppState;
+use log::error;
+use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, State};
 
-use crate::models::SearchResult;
-use crate::services::search_service;
-use crate::AppState;
+static PAGE_SIZE: usize = 10;
 
-#[get("/?<q>&<page>&<page_size>")]
+#[get("/?<q>&<page>&<page_size>&<search_type>")]
 pub async fn search_captions(
     state: &State<AppState>,
     q: Option<&str>,
     page: Option<usize>,
     page_size: Option<usize>,
-) -> Json<Vec<SearchResult>> {
+    search_type: Option<&str>,
+) -> Result<Json<Vec<SearchResult>>, Status> {
     let query_string = q.unwrap_or("");
     let from = page.unwrap_or(0) * page_size.unwrap_or(10);
-    let size = page_size.unwrap_or(10);
 
     if query_string.is_empty() {
-        return Json(vec![]);
+        return Err(Status::BadRequest);
     }
 
-    info!("Searching for: '{query_string}' (from={from}, size={size})");
+    // Parse search_type parameter
+    let options = match search_type {
+        Some("wide") => SearchOptions::wide(),
+        Some("natural") => SearchOptions::natural(),
+        _ => SearchOptions::natural(),
+    };
 
-    match search_service::search_captions(&state.es_client, query_string, from, size).await {
-        Ok(results) => {
-            info!("Found {} search results.", results.len());
-            Json(results)
-        }
+    match search_service::search_captions_with_options(
+        &state.es_client,
+        &query_string,
+        from,
+        PAGE_SIZE,
+        options,
+    )
+    .await
+    {
+        Ok(results) => Ok(Json(results)),
         Err(e) => {
-            log::error!("Search failed: {e:?}");
-            Json(vec![])
+            error!("Search failed: {e:?}");
+            Err(Status::InternalServerError)
         }
     }
 }

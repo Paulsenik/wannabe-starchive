@@ -7,7 +7,7 @@ use crate::admin_monitor::AdminMonitorsPage;
 use crate::admin_queue::AdminQueuePage;
 use crate::admin_videos::AdminVideosPage;
 use crate::models::SearchResult;
-use crate::{execute_search, get_query_param, ResultsList, SearchBar};
+use crate::{execute_search, get_filter_param, get_query_param, ResultsList, SearchBar};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
@@ -58,12 +58,24 @@ pub fn search_app() -> Html {
     let error_message = use_state(Option::<String>::default);
     let init_done = use_state(|| false);
 
+    let filter_param = get_filter_param();
+
+    let is_wide_search = use_state(|| filter_param.unwrap().search_type == "wide");
+
+    let on_wide_search_toggle = {
+        let is_wide_search = is_wide_search.clone();
+        Callback::from(move |_| {
+            is_wide_search.set(!*is_wide_search);
+        })
+    };
+
     {
         let search_query = search_query.clone();
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error_message = error_message.clone();
         let init_done = init_done.clone();
+        let is_wide_search = is_wide_search.clone();
 
         use_effect(move || {
             if !*init_done {
@@ -72,8 +84,12 @@ pub fn search_app() -> Html {
                     loading.set(true);
                     error_message.set(None);
 
+                    // Read the current value before moving into async block
+                    let is_wide = *is_wide_search;
+                    let search_type = if is_wide { "wide" } else { "natural" };
                     wasm_bindgen_futures::spawn_local(async move {
-                        execute_search(query, search_results, error_message, loading).await;
+                        execute_search(query, search_type, search_results, error_message, loading)
+                            .await;
                     });
                 }
                 init_done.set(true);
@@ -88,6 +104,7 @@ pub fn search_app() -> Html {
         let search_results = search_results.clone();
         let loading = loading.clone();
         let error_message = error_message.clone();
+        let is_wide_search = is_wide_search.clone();
 
         Callback::from(move |query: String| {
             let search_results = search_results.clone();
@@ -99,8 +116,11 @@ pub fn search_app() -> Html {
             loading.set(true);
             error_message.set(None);
 
+            // Read the current value before moving into async block
+            let is_wide = *is_wide_search;
+            let search_type = if is_wide { "wide" } else { "natural" };
             wasm_bindgen_futures::spawn_local(async move {
-                execute_search(query, search_results, error_message, loading).await;
+                execute_search(query, search_type, search_results, error_message, loading).await;
             });
         })
     };
@@ -124,6 +144,18 @@ pub fn search_app() -> Html {
                     loading={*loading}
                     on_search={on_search}
                 />
+
+                <div class="flex items-center justify-center mb-4">
+                    <label class="inline-flex items-center">
+                        <input
+                            type="checkbox"
+                            class="form-checkbox h-5 w-5 text-blue-600"
+                            checked={*is_wide_search}
+                            onchange={on_wide_search_toggle}
+                        />
+                        <span class="ml-2 text-gray-700">{"Enable wide search"}</span>
+                    </label>
+                </div>
 
                 {
                     if let Some(msg) = &*error_message {

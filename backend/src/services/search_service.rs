@@ -1,7 +1,7 @@
 use crate::models::{Caption, SearchResult};
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, SearchParts};
-use log::{debug, error};
+use log::debug;
 use serde_json::{json, Map, Value};
 
 /// Fragmenting
@@ -32,29 +32,20 @@ pub enum SearchType {
     Wide,    // Flexible word matching + fuzzy + stemming
 }
 
-impl Default for SearchOptions {
-    fn default() -> Self {
+impl SearchOptions {
+    pub fn natural() -> Self {
         Self {
             search_type: SearchType::Natural,
             fuzzy_distance: None,
         }
     }
-}
 
-pub async fn search_captions(
-    es_client: &Elasticsearch,
-    query_string: &str,
-    from: usize,
-    size: usize,
-) -> Result<Vec<SearchResult>> {
-    search_captions_with_options(
-        es_client,
-        query_string,
-        from,
-        size,
-        SearchOptions::default(),
-    )
-    .await
+    pub fn wide() -> Self {
+        Self {
+            search_type: SearchType::Wide,
+            fuzzy_distance: Some("2".to_string()),
+        }
+    }
 }
 
 pub async fn search_captions_with_options(

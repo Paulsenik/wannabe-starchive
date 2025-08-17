@@ -25,6 +25,10 @@ pub struct SearchResult {
     pub snippet_html: String,
 }
 
+pub struct FilterParameter {
+    pub search_type: String,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MonitoredChannelStats {
     pub channel_id: String,
