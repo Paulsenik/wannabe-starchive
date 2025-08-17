@@ -78,32 +78,24 @@ pub async fn search_captions_with_options(
     size: usize,
     options: SearchOptions,
 ) -> Result<Vec<SearchResult>> {
-    let query_body = build_search_query_by_type(
-        query_string,
-        from,
-        size,
-        DEFAULT_FRAGMENT_SIZE,
-        DEFAULT_NUM_FRAGMENTS,
-        &options,
-    );
+    // Step 1: Get unique video IDs with pagination
+    let video_ids = get_paginated_video_ids(es_client, query_string, from, size, &options).await?;
 
-    let response = es_client
-        .search(SearchParts::Index(&["youtube_captions"]))
-        .from(from as i64)
-        .size(size as i64)
-        .body(query_body)
-        .send()
-        .await
-        .context("Elasticsearch search request failed")?
-        .json::<Value>()
-        .await
-        .context("Failed to parse Elasticsearch search response as JSON")?;
+    if video_ids.is_empty() {
+        return Ok(Vec::new());
+    }
 
-    // Parse base results with highlighted anchor snippet
-    let mut results = process_search_response(response).await;
+    // Step 2: For each video, get ALL matching captions
+    let mut all_results = Vec::new();
 
-    // For each result, fetch neighbors and build the combined snippet
-    for res in results.iter_mut() {
+    for video_id in video_ids {
+        let video_captions =
+            get_all_captions_for_video(es_client, query_string, &video_id, &options).await?;
+        all_results.extend(video_captions);
+    }
+
+    // Step 3: Process each result with neighbors
+    for res in all_results.iter_mut() {
         let (prev, next) = fetch_neighbors_for_hit(
             es_client,
             &res.video_id,
@@ -127,18 +119,174 @@ pub async fn search_captions_with_options(
             truncate_around_highlight(&combined, MAX_COMBINED_CHARS, PRE_TAG, POST_TAG);
     }
 
-    Ok(results)
+    Ok(all_results)
 }
 
-fn build_search_query_by_type(
+/// Get unique video IDs with video-level pagination
+async fn get_paginated_video_ids(
+    es_client: &Elasticsearch,
     query_string: &str,
     from: usize,
     size: usize,
-    fragment_size: usize,
-    number_of_fragments: usize,
     options: &SearchOptions,
-) -> Value {
-    let main_query = match options.search_type {
+) -> Result<Vec<String>> {
+    let main_query = build_main_query_by_type(query_string, options);
+
+    // Choose aggregation order based on sort option
+    let agg_order = match options.sort_by {
+        SortBy::Relevance => {
+            json!({
+                "avg_score": "desc"  // Sort by average score of all matches in video
+            })
+        }
+        SortBy::CaptionMatches => {
+            json!({
+                "_count": "desc"  // Sort by number of matching captions
+            })
+        }
+        // For other sort types, we'll fall back to max score for now
+        // You could extend this to join with video metadata for upload date, views, etc.
+        _ => {
+            json!({
+                "max_score": "desc"
+            })
+        }
+    };
+
+    let query_body = json!({
+        "size": 0,  // We don't need the hits, just the aggregation
+        "query": main_query,
+        "aggs": {
+            "unique_videos": {
+                "terms": {
+                    "field": "video_id",
+                    "size": from + size + 50,  // Get extra to ensure we have enough after sorting
+                    "order": agg_order
+                },
+                "aggs": {
+                    "max_score": {
+                        "max": {
+                            "script": "_score"
+                        }
+                    },
+                    "avg_score": {
+                        "avg": {
+                            "script": "_score"
+                        }
+                    },
+                    "total_score": {
+                        "sum": {
+                            "script": "_score"
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let response = es_client
+        .search(SearchParts::Index(&["youtube_captions"]))
+        .body(query_body)
+        .send()
+        .await
+        .context("Elasticsearch aggregation request failed")?
+        .json::<Value>()
+        .await
+        .context("Failed to parse Elasticsearch aggregation response as JSON")?;
+
+    // Extract video IDs from aggregation, applying pagination
+    let empty_vec = vec![];
+    let buckets = response
+        .get("aggregations")
+        .and_then(|aggs| aggs.get("unique_videos"))
+        .and_then(|unique_videos| unique_videos.get("buckets"))
+        .and_then(|buckets| buckets.as_array())
+        .unwrap_or(&empty_vec);
+
+    let video_ids: Vec<String> = buckets
+        .iter()
+        .skip(from) // Apply video-level pagination
+        .take(size)
+        .filter_map(|bucket| {
+            bucket
+                .get("key")
+                .and_then(|key| key.as_str())
+                .map(|s| s.to_string())
+        })
+        .collect();
+
+    Ok(video_ids)
+}
+
+/// Get all matching captions for a specific video
+async fn get_all_captions_for_video(
+    es_client: &Elasticsearch,
+    query_string: &str,
+    video_id: &str,
+    options: &SearchOptions,
+) -> Result<Vec<SearchResult>> {
+    let main_query = build_main_query_by_type(query_string, options);
+
+    // Combine the main query with a video filter
+    let combined_query = json!({
+        "bool": {
+            "must": [
+                main_query,
+                {
+                    "term": {
+                        "video_id": video_id  // No .keyword suffix needed since video_id is already keyword type
+                    }
+                }
+            ]
+        }
+    });
+
+    let query_body = json!({
+        "size": 1000,  // Large size to get all captions for this video
+        "query": combined_query,
+        "_source": ["video_id", "text", "start_time", "end_time"],
+        "highlight": {
+            "pre_tags": [PRE_TAG],
+            "post_tags": [POST_TAG],
+            "fields": {
+                "text": {
+                    "type": "unified",
+                    "number_of_fragments": DEFAULT_NUM_FRAGMENTS,
+                    "fragment_size": DEFAULT_FRAGMENT_SIZE,
+                    "order": "score",
+                    "boundary_scanner": "sentence",
+                    "boundary_chars": ".,!?;",
+                    "boundary_max_scan": DEFAULT_BOUNDARY_MAX_SCAN,
+                    "no_match_size": DEFAULT_NO_MATCH_SIZE,
+                    "highlight_query": main_query,
+                    "fragmenter": "simple",
+                    "max_analyzed_offset": 1000000
+                }
+            },
+            "require_field_match": true
+        },
+        "sort": [
+            { "_score": { "order": "desc" } },
+            { "start_time": { "order": "asc" } }
+        ]
+    });
+
+    let response = es_client
+        .search(SearchParts::Index(&["youtube_captions"]))
+        .body(query_body)
+        .send()
+        .await
+        .context("Elasticsearch video captions request failed")?
+        .json::<Value>()
+        .await
+        .context("Failed to parse Elasticsearch video captions response as JSON")?;
+
+    let results = process_search_response(response).await;
+    Ok(results)
+}
+
+fn build_main_query_by_type(query_string: &str, options: &SearchOptions) -> Value {
+    match options.search_type {
         SearchType::Natural => {
             json!({
                 "bool": {
@@ -241,38 +389,7 @@ fn build_search_query_by_type(
                 }
             })
         }
-    };
-
-    json!({
-        "from": from,
-        "size": size,
-        "query": main_query,
-        "_source": ["video_id", "text", "start_time", "end_time"],
-        "highlight": {
-            "pre_tags": [PRE_TAG],
-            "post_tags": [POST_TAG],
-            "fields": {
-                "text": {
-                    "type": "unified",
-                    "number_of_fragments": number_of_fragments,
-                    "fragment_size": fragment_size,
-                    "order": "score",
-                    "boundary_scanner": "sentence",
-                    "boundary_chars": ".,!?;",
-                    "boundary_max_scan": DEFAULT_BOUNDARY_MAX_SCAN,
-                    "no_match_size": DEFAULT_NO_MATCH_SIZE,
-                    "highlight_query": main_query,
-                    "fragmenter": "simple",
-                    "max_analyzed_offset": 1000000
-                }
-            },
-            "require_field_match": true
-        },
-        "sort": [
-            { "_score": { "order": "desc" } },
-            { "start_time": { "order": "asc" } }
-        ]
-    })
+    }
 }
 
 fn parse_search_result(source: &Map<String, Value>, hit: &Value) -> SearchResult {
