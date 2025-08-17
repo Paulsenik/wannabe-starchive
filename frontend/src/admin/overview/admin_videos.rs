@@ -1,6 +1,6 @@
 use crate::models::VideoMetadata;
 use crate::router::Route;
-use crate::{format_iso8601_date, format_iso8601_duration, format_number};
+use crate::utils::{format_iso8601_date, format_iso8601_duration, format_number};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::window;

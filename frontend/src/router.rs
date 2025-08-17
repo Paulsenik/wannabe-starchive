@@ -1,13 +1,14 @@
+use crate::admin::overview::admin_captions::AdminCaptionsPage;
+use crate::admin::overview::admin_monitor::AdminMonitorsPage;
+use crate::admin::overview::admin_queue::AdminQueuePage;
+use crate::admin::overview::admin_videos::AdminVideosPage;
+use crate::admin::overview::AdminPage;
+use crate::models::SearchResult;
+use crate::search::api::execute_search;
+use crate::search::components::{get_filter_param, get_query_param};
+use crate::search::utils::{ResultsList, SearchBar};
 use yew::prelude::*;
 use yew_router::prelude::*;
-
-use crate::admin::AdminPage;
-use crate::admin_captions::AdminCaptionsPage;
-use crate::admin_monitor::AdminMonitorsPage;
-use crate::admin_queue::AdminQueuePage;
-use crate::admin_videos::AdminVideosPage;
-use crate::models::SearchResult;
-use crate::{execute_search, get_filter_param, get_query_param, ResultsList, SearchBar};
 
 #[derive(Clone, Routable, PartialEq)]
 pub enum Route {
