@@ -9,7 +9,6 @@ mod router;
 use crate::models::{FilterParameter, SearchResult, VideoMetadata};
 use crate::router::{switch, Route};
 use gloo_net::http::Request;
-use std::iter::Filter;
 use web_sys::console;
 use web_sys::{wasm_bindgen, HtmlInputElement};
 use yew::prelude::*;
@@ -219,6 +218,8 @@ pub struct VideoResultsProps {
     pub results: Vec<SearchResult>,
 }
 
+const RESULTS_PER_PAGE: usize = 10;
+
 #[derive(Properties, PartialEq)]
 pub struct ResultsListProps {
     pub results: Vec<SearchResult>,
@@ -369,6 +370,8 @@ fn video_results(props: &VideoResultsProps) -> Html {
 
 #[function_component(ResultsList)]
 pub fn results_list(props: &ResultsListProps) -> Html {
+    let current_page = use_state(|| 0);
+
     if props.results.is_empty()
         && !props.loading
         && props.error.is_none()
@@ -378,6 +381,14 @@ pub fn results_list(props: &ResultsListProps) -> Html {
             <p class="text-center text-gray-500">{"No results found."}</p>
         };
     }
+
+    let total_pages = (props.results.len() as f32 / RESULTS_PER_PAGE as f32).ceil() as usize;
+    let start = *current_page * RESULTS_PER_PAGE;
+    let end = start + RESULTS_PER_PAGE;
+    let paginated_results = props
+        .results
+        .get(start..end.min(props.results.len()))
+        .unwrap_or(&[]);
 
     let mut last_video = String::new();
     let mut current_group = Vec::new();
@@ -399,17 +410,48 @@ pub fn results_list(props: &ResultsListProps) -> Html {
     }
 
     html! {
-        <div class="mt-8 space-y-6">
-            { for grouped_videos.into_iter().map(|(video_id, results)| {
-                let mut sorted_results = results.iter().map(|&r| r.clone()).collect::<Vec<_>>();
-                sorted_results.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
-                html! {
-                    <VideoResults
-                        video_id={video_id}
-                        results={sorted_results}
-                    />
-                }
-            })}
+        <div class="mt-8">
+            <div class="space-y-6">
+                { for grouped_videos.into_iter().map(|(video_id, results)| {
+                    let mut sorted_results = results.iter().map(|&r| r.clone()).collect::<Vec<_>>();
+                    sorted_results.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
+                    html! {
+                        <VideoResults
+                            video_id={video_id}
+                            results={sorted_results}
+                        />
+                    }
+                })}
+            </div>
+            <div class="mt-6 flex justify-center gap-2">
+                <button
+                    onclick={let current_page = current_page.clone(); move |_| {
+                        current_page.set((*current_page).saturating_sub(1));
+                        if let Some(window) = web_sys::window() {
+                            window.scroll_to_with_x_and_y(0.0, 0.0);
+                        }
+                    }}
+                    disabled={*current_page == 0}
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                    {"Previous"}
+                </button>
+                <span class="px-4 py-2 text-sm">
+                    {format!("Page {} of {}", *current_page + 1, total_pages.max(1))}
+                </span>
+                <button
+                    onclick={let current_page = current_page.clone(); move |_| {
+                        current_page.set((*current_page + 1).min(total_pages.saturating_sub(1)));
+                        if let Some(window) = web_sys::window() {
+                            window.scroll_to_with_x_and_y(0.0, 0.0);
+                        }
+                    }}
+                    disabled={*current_page >= total_pages.saturating_sub(1)}
+                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                    {"Next"}
+                </button>
+            </div>
         </div>
     }
 }
