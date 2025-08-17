@@ -5,8 +5,8 @@ use crate::admin::overview::admin_videos::AdminVideosPage;
 use crate::admin::overview::AdminPage;
 use crate::models::SearchResult;
 use crate::search::api::execute_search;
-use crate::search::components::{get_filter_param, get_query_param};
-use crate::search::utils::{ResultsList, SearchBar};
+use crate::search::components::{ResultsList, SearchBar};
+use crate::search::utils::{get_filter_param, get_query_param};
 use yew::prelude::*;
 use yew_router::prelude::*;
 
