@@ -1,15 +1,6 @@
-use crate::models::{SearchResult, VideoMetadata};
+use crate::models::{SearchResponse, SearchResult, VideoMetadata};
 use gloo_net::http::Request;
 use yew::prelude::*;
-
-pub async fn perform_search_request(
-    query: &str,
-    search_type: &str,
-) -> Result<gloo_net::http::Response, gloo_net::Error> {
-    let backend_url = "http://localhost:8000";
-    let url = format!("{backend_url}/search?q={query}&search_type={search_type}");
-    Request::get(&url).send().await
-}
 
 pub async fn get_raw_video_metadata(
     video_id: &str,
@@ -17,34 +8,6 @@ pub async fn get_raw_video_metadata(
     let backend_url = "http://localhost:8000";
     let url = format!("{backend_url}/video/{video_id}");
     Request::get(&url).send().await
-}
-
-pub async fn handle_search_response(
-    response: Result<gloo_net::http::Response, gloo_net::Error>,
-    search_results: &UseStateHandle<Vec<SearchResult>>,
-    error_message: &UseStateHandle<Option<String>>,
-) {
-    match response {
-        Ok(response) => {
-            if response.ok() {
-                match response.json::<Vec<SearchResult>>().await {
-                    Ok(results) => search_results.set(results),
-                    Err(e) => handle_error(
-                        error_message,
-                        format!("Failed to parse search results: {e}"),
-                    ),
-                }
-            } else {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                handle_error(
-                    error_message,
-                    format!("Search failed: HTTP {status} - {text}"),
-                );
-            }
-        }
-        Err(e) => handle_error(error_message, format!("Failed to connect to backend: {e}")),
-    }
 }
 
 pub async fn get_video_metadata(
@@ -82,19 +45,55 @@ pub async fn get_video_metadata(
 pub async fn execute_search(
     query: String,
     search_type: &str,
+    page: usize,
     search_results: UseStateHandle<Vec<SearchResult>>,
+    total_results: UseStateHandle<Option<(usize, usize)>>, // (videos, captions)
     error_message: UseStateHandle<Option<String>>,
     loading: UseStateHandle<bool>,
 ) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(history) = window.history() {
-            let url = format!("/?q={}&t={}", query, search_type);
-            let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url));
+    let backend_url = "http://localhost:8000";
+    let url = format!(
+        "{}/search/?query={}&type={}&page={}",
+        backend_url,
+        urlencoding::encode(&query),
+        search_type,
+        page
+    );
+
+    match Request::get(&url).send().await {
+        Ok(response) => {
+            if response.ok() {
+                match response.json::<SearchResponse>().await {
+                    Ok(search_response) => {
+                        search_results.set(search_response.results);
+                        total_results.set(Some((
+                            search_response.total_videos,
+                            search_response.total_captions,
+                        )));
+                        error_message.set(None);
+                    }
+                    Err(e) => {
+                        error_message.set(Some(format!("Failed to parse response: {}", e)));
+                    }
+                }
+            } else {
+                let status = response.status();
+                match response.text().await {
+                    Ok(error_text) => {
+                        error_message
+                            .set(Some(format!("Search failed ({}): {}", status, error_text)));
+                    }
+                    Err(_) => {
+                        error_message.set(Some(format!("Search failed with status: {}", status)));
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error_message.set(Some(format!("Network error: {}", e)));
         }
     }
 
-    let response = perform_search_request(&query, &search_type).await;
-    handle_search_response(response, &search_results, &error_message).await;
     loading.set(false);
 }
 

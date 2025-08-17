@@ -96,6 +96,16 @@ pub struct Caption {
     pub end_time: f64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchResponse {
+    pub results: Vec<SearchResult>,
+    pub total_videos: usize,
+    pub total_captions: usize,
+    pub page: usize,
+    pub per_page: usize,
+    pub total_pages: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub video_id: String,

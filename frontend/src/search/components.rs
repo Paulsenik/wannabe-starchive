@@ -30,6 +30,9 @@ pub struct ResultsListProps {
     pub loading: bool,
     pub error: Option<String>,
     pub query: String,
+    pub on_page_change: Callback<usize>,
+    pub current_page: usize,
+    pub total_results: Option<(usize, usize)>, // (total_videos, total_captions)
 }
 
 #[function_component(SearchBar)]
@@ -174,8 +177,6 @@ pub fn video_results(props: &VideoResultsProps) -> Html {
 
 #[function_component(ResultsList)]
 pub fn results_list(props: &ResultsListProps) -> Html {
-    let current_page = use_state(|| 0usize);
-
     if props.results.is_empty()
         && !props.loading
         && props.error.is_none()
@@ -186,7 +187,12 @@ pub fn results_list(props: &ResultsListProps) -> Html {
         };
     }
 
-    let total_pages = (props.results.len() as f32 / RESULTS_PER_PAGE as f32).ceil() as usize;
+    // Calculate total pages based on total videos (not captions)
+    let total_pages = if let Some((total_videos, _)) = props.total_results {
+        (total_videos as f32 / RESULTS_PER_PAGE as f32).ceil() as usize
+    } else {
+        1
+    };
 
     let mut last_video = String::new();
     let mut current_group = Vec::new();
@@ -209,8 +215,24 @@ pub fn results_list(props: &ResultsListProps) -> Html {
 
     html! {
         <div class="mt-8">
+            // Add results summary
+            {
+                if let Some((total_videos, total_captions)) = props.total_results {
+                    html! {
+                        <div class="mb-4 p-3 bg-blue-50 rounded-lg text-center">
+                            <p class="text-sm text-gray-700">
+                                {format!("Found {} matching videos with {} total caption matches for \"{}\"",
+                                    total_videos, total_captions, props.query)}
+                            </p>
+                        </div>
+                    }
+                } else {
+                    html! {}
+                }
+            }
+
             <div class="space-y-6">
-                { for grouped_videos.into_iter().map(|(video_id, results)| {
+                { for grouped_videos.clone().into_iter().map(|(video_id, results)| {
                     let mut sorted_results = results.iter().map(|&r| r.clone()).collect::<Vec<_>>();
                     sorted_results.sort_by(|a, b| a.start_time.partial_cmp(&b.start_time).unwrap());
                     html! {
@@ -221,34 +243,61 @@ pub fn results_list(props: &ResultsListProps) -> Html {
                     }
                 })}
             </div>
-            <div class="mt-6 flex justify-center gap-2">
-                <button
-                    onclick={let current_page = current_page.clone(); move |_| {
-                        current_page.set((*current_page).saturating_sub(1));
-                        if let Some(window) = web_sys::window() {
-                            window.scroll_to_with_x_and_y(0.0, 0.0);
+
+            // Update pagination to show more detailed info
+            <div class="mt-6 flex flex-col items-center gap-2">
+                <div class="flex justify-center gap-2">
+                    <button
+                        onclick={
+                            let on_page_change = props.on_page_change.clone();
+                            let current_page = props.current_page;
+                            move |_| {
+                                if current_page > 0 {
+                                    on_page_change.emit(current_page - 1);
+                                }
+                                if let Some(window) = web_sys::window() {
+                                    window.scroll_to_with_x_and_y(0.0, 0.0);
+                                }
+                            }
                         }
-                    }}
-                    disabled={*current_page == 0}
-                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                    {"Previous"}
-                </button>
-                <span class="px-4 py-2 text-sm">
-                    {format!("Page {} of {}", *current_page + 1, total_pages.max(1))}
-                </span>
-                <button
-                    onclick={let current_page = current_page.clone(); move |_| {
-                        current_page.set((*current_page + 1).min(total_pages.saturating_sub(1)));
-                        if let Some(window) = web_sys::window() {
-                            window.scroll_to_with_x_and_y(0.0, 0.0);
+                        disabled={props.current_page == 0 || props.loading}
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {"Previous"}
+                    </button>
+                    <span class="px-4 py-2 text-sm">
+                        {format!("Page {} of {}", props.current_page + 1, total_pages.max(1))}
+                    </span>
+                    <button
+                        onclick={
+                            let on_page_change = props.on_page_change.clone();
+                            let current_page = props.current_page;
+                            move |_| {
+                                if current_page < total_pages.saturating_sub(1) {
+                                    on_page_change.emit(current_page + 1);
+                                }
+                                if let Some(window) = web_sys::window() {
+                                    window.scroll_to_with_x_and_y(0.0, 0.0);
+                                }
+                            }
                         }
-                    }}
-                    disabled={*current_page >= total_pages.saturating_sub(1)}
-                    class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                >
-                    {"Next"}
-                </button>
+                        disabled={props.current_page >= total_pages.saturating_sub(1) || props.loading}
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {"Next"}
+                    </button>
+                </div>
+                {
+                    if let Some((total_videos, _)) = props.total_results {
+                        html! {
+                            <p class="text-xs text-gray-500">
+                                {format!("Showing {} videos", grouped_videos.len())}
+                            </p>
+                        }
+                    } else {
+                        html! {}
+                    }
+                }
             </div>
         </div>
     }

@@ -1,6 +1,9 @@
-use crate::models::SearchResult;
+use crate::models::{SearchResponse, SearchResult};
 use crate::services::search_service;
-use crate::services::search_service::SearchOptions;
+use crate::services::search_service::SearchType::{Natural, Wide};
+use crate::services::search_service::SortBy::Relevance;
+use crate::services::search_service::SortOrder::{Asc, Desc};
+use crate::services::search_service::{search_captions_with_pagination, SearchOptions, SortBy};
 use crate::AppState;
 use log::error;
 use rocket::http::Status;
@@ -9,41 +12,39 @@ use rocket::{get, State};
 
 static PAGE_SIZE: usize = 10;
 
-#[get("/?<q>&<page>&<page_size>&<search_type>")]
+#[get("/?<query>&<type>&<sort>&<page>")]
 pub async fn search_captions(
-    state: &State<AppState>,
-    q: Option<&str>,
+    query: String,
+    r#type: Option<String>,
+    sort: Option<String>,
     page: Option<usize>,
-    page_size: Option<usize>,
-    search_type: Option<&str>,
-) -> Result<Json<Vec<SearchResult>>, Status> {
-    let query_string = q.unwrap_or("");
-    let from = page.unwrap_or(0) * page_size.unwrap_or(10);
+    state: &State<AppState>,
+) -> Result<Json<SearchResponse>, rocket::serde::json::Value> {
+    let page = page.unwrap_or(0);
+    let per_page = 10; // Limit max per_page to 50
 
-    if query_string.is_empty() {
-        return Err(Status::BadRequest);
-    }
-
-    // Parse search_type parameter
-    let options = match search_type {
-        Some("wide") => SearchOptions::wide(),
-        Some("natural") => SearchOptions::natural(),
-        _ => SearchOptions::natural(),
+    let sort_by = match sort.as_deref() {
+        Some("relevance") => SortBy::Relevance,
+        Some("caption_matches") => SortBy::CaptionMatches,
+        _ => SortBy::Relevance,
     };
 
-    match search_service::search_captions_with_options(
-        &state.es_client,
-        &query_string,
-        from,
-        PAGE_SIZE,
-        options,
-    )
-    .await
+    let search_type_string = r#type.unwrap_or_else(|| "natural".to_string());
+    let options = match search_type_string.as_str() {
+        "natural" => SearchOptions::natural(sort_by, Desc),
+        "wide" => SearchOptions::wide(sort_by, Desc),
+        _ => SearchOptions::natural(sort_by, Desc),
+    };
+
+    match search_captions_with_pagination(&state.es_client, &query, page, per_page, &options).await
     {
-        Ok(results) => Ok(Json(results)),
+        Ok(response) => Ok(Json(response)),
         Err(e) => {
-            error!("Search failed: {e:?}");
-            Err(Status::InternalServerError)
+            eprintln!("Search error: {}", e);
+            Err(rocket::serde::json::json!({
+                "error": "Search failed",
+                "details": e.to_string()
+            }))
         }
     }
 }

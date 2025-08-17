@@ -1,4 +1,4 @@
-use crate::models::{Caption, SearchResult};
+use crate::models::{Caption, SearchResponse, SearchResult};
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, SearchParts};
 use log::debug;
@@ -52,50 +52,50 @@ pub enum SearchType {
 }
 
 impl SearchOptions {
-    pub fn natural() -> Self {
+    pub fn natural(sort_by: SortBy, sort_order: SortOrder) -> Self {
         Self {
             search_type: SearchType::Natural,
             fuzzy_distance: None,
-            sort_by: SortBy::Relevance,
-            sort_order: SortOrder::Asc,
+            sort_by,
+            sort_order,
         }
     }
 
-    pub fn wide() -> Self {
+    pub fn wide(sort_by: SortBy, sort_order: SortOrder) -> Self {
         Self {
             search_type: SearchType::Wide,
-            fuzzy_distance: Some("2".to_string()),
-            sort_by: SortBy::Relevance,
-            sort_order: SortOrder::Asc,
+            fuzzy_distance: Some("1".to_string()),
+            sort_by,
+            sort_order,
         }
     }
 }
-
-pub async fn search_captions_with_options(
+pub async fn search_captions_with_pagination(
     es_client: &Elasticsearch,
     query_string: &str,
-    from: usize,
-    size: usize,
-    options: SearchOptions,
-) -> Result<Vec<SearchResult>> {
-    // Step 1: Get unique video IDs with pagination
-    let video_ids = get_paginated_video_ids(es_client, query_string, from, size, &options).await?;
+    page: usize,
+    page_size: usize,
+    options: &SearchOptions,
+) -> Result<SearchResponse> {
+    let from = page * page_size;
 
-    if video_ids.is_empty() {
-        return Ok(Vec::new());
-    }
+    // First, get total counts without pagination
+    let total_counts = get_total_counts(es_client, query_string, options).await?;
 
-    // Step 2: For each video, get ALL matching captions
-    let mut all_results = Vec::new();
+    // Then get paginated video IDs
+    let video_ids =
+        get_paginated_video_ids(es_client, query_string, from, page_size, options).await?;
 
-    for video_id in video_ids {
-        let video_captions =
-            get_all_captions_for_video(es_client, query_string, &video_id, &options).await?;
-        all_results.extend(video_captions);
+    // Get detailed results for these videos
+    let mut results = Vec::new();
+    for video_id in video_ids.iter() {
+        let video_results =
+            get_all_captions_for_video(es_client, query_string, video_id, options).await?;
+        results.extend(video_results);
     }
 
     // Step 3: Process each result with neighbors
-    for res in all_results.iter_mut() {
+    for res in results.iter_mut() {
         let (prev, next) = fetch_neighbors_for_hit(
             es_client,
             &res.video_id,
@@ -119,7 +119,61 @@ pub async fn search_captions_with_options(
             truncate_around_highlight(&combined, MAX_COMBINED_CHARS, PRE_TAG, POST_TAG);
     }
 
-    Ok(all_results)
+    let total_pages = (total_counts.0 as f32 / page_size as f32).ceil() as usize;
+
+    Ok(SearchResponse {
+        results,
+        total_videos: total_counts.0,
+        total_captions: total_counts.1,
+        page,
+        per_page: page_size,
+        total_pages,
+    })
+}
+
+/// Get total counts of matching videos and captions
+async fn get_total_counts(
+    es_client: &Elasticsearch,
+    query_string: &str,
+    options: &SearchOptions,
+) -> Result<(usize, usize)> {
+    let main_query = build_main_query_by_type(query_string, options);
+
+    let query_body = json!({
+        "size": 0,
+        "query": main_query,
+        "aggs": {
+            "unique_videos": {
+                "cardinality": {
+                    "field": "video_id"
+                }
+            },
+            "total_captions": {
+                "value_count": {
+                    "field": "video_id"
+                }
+            }
+        }
+    });
+
+    let response = es_client
+        .search(SearchParts::Index(&["youtube_captions"]))
+        .body(query_body)
+        .send()
+        .await
+        .context("Elasticsearch count request failed")?
+        .json::<Value>()
+        .await?;
+
+    let total_videos = response["aggregations"]["unique_videos"]["value"]
+        .as_u64()
+        .unwrap_or(0) as usize;
+
+    let total_captions = response["aggregations"]["total_captions"]["value"]
+        .as_u64()
+        .unwrap_or(0) as usize;
+
+    Ok((total_videos, total_captions))
 }
 
 /// Get unique video IDs with video-level pagination and deterministic sorting
