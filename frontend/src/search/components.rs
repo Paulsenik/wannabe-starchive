@@ -1,5 +1,6 @@
 use crate::models::SearchResult;
 use crate::search::api::get_video_metadata;
+use crate::search::search_options::{SearchOptionsDropdowns, SortBy, SortOrder};
 use crate::utils::{format_iso8601_date, format_iso8601_duration, format_number, format_timestamp};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
@@ -8,7 +9,11 @@ use yew::prelude::*;
 pub struct SearchBarProps {
     pub query: String,
     pub loading: bool,
+    pub sort_by: SortBy,
+    pub sort_order: SortOrder,
     pub on_search: Callback<String>,
+    pub on_sort_by_change: Callback<SortBy>,
+    pub on_sort_order_change: Callback<SortOrder>,
 }
 
 #[derive(Properties, PartialEq)]
@@ -59,23 +64,33 @@ pub fn search_bar(props: &SearchBarProps) -> Html {
     };
 
     html! {
-        <form onsubmit={on_submit} class="flex mb-4">
-            <input
-                type="text"
-                class="flex-grow p-3 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter YouTube caption search query..."
-                value={(*current_input).clone()} // Bind the input's value to our internal state
-                oninput={on_input} // Update internal state on user input
-                disabled={props.loading}
+        <div class="search-section">
+            <form onsubmit={on_submit} class="flex mb-4">
+                <input
+                    type="text"
+                    class="flex-grow p-3 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter YouTube caption search query..."
+                    value={(*current_input).clone()} // Bind the input's value to our internal state
+                    oninput={on_input} // Update internal state on user input
+                    disabled={props.loading}
+                />
+                <button
+                    type="submit"
+                    class="bg-blue-600 text-white p-3 rounded-r-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    disabled={props.loading}
+                >
+                    { if props.loading { "Searching..." } else { "Search" } }
+                </button>
+            </form>
+
+            // Add the search options dropdowns below the search bar
+            <SearchOptionsDropdowns
+                sort_by={props.sort_by.clone()}
+                sort_order={props.sort_order.clone()}
+                on_sort_by_change={props.on_sort_by_change.clone()}
+                on_sort_order_change={props.on_sort_order_change.clone()}
             />
-            <button
-                type="submit"
-                class="bg-blue-600 text-white p-3 rounded-r-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                disabled={props.loading}
-            >
-                { if props.loading { "Searching..." } else { "Search" } }
-            </button>
-        </form>
+        </div>
     }
 }
 

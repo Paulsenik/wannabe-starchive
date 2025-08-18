@@ -1,6 +1,8 @@
 use crate::models::{ErrorResponse, SearchResponse};
-use crate::services::search_service::SortBy::{CaptionMatches, Relevance};
-use crate::services::search_service::SortOrder::Desc;
+use crate::services::search_service::SortBy::{
+    CaptionMatches, Duration, Likes, Relevance, UploadDate, Views,
+};
+use crate::services::search_service::SortOrder::{Asc, Desc};
 use crate::services::search_service::{search_captions_with_pagination, SearchOptions};
 use crate::AppState;
 use rocket::serde::json::Json;
@@ -9,11 +11,12 @@ use rocket::{get, State};
 static PAGE_SIZE: usize = 10;
 static MIN_QUERY_SIZE: usize = 3;
 
-#[get("/?<query>&<type>&<sort>&<page>")]
+#[get("/?<query>&<type>&<sort>&<order>&<page>")]
 pub async fn search_captions(
     query: String,
     r#type: Option<String>,
     sort: Option<String>,
+    order: Option<String>,
     page: Option<usize>,
     state: &State<AppState>,
 ) -> Result<Json<SearchResponse>, ErrorResponse> {
@@ -30,17 +33,27 @@ pub async fn search_captions(
 
     let sort_by = match sort.as_deref() {
         Some("relevance") => Relevance,
+        Some("upload_date") => UploadDate,
+        Some("duration") => Duration,
+        Some("views") => Views,
+        Some("likes") => Likes,
         Some("caption_matches") => CaptionMatches,
         _ => Relevance,
+    };
+
+    let ordering = match order.as_deref() {
+        Some("asc") => Asc,
+        Some("desc") => Desc,
+        _ => Desc,
     };
 
     let page = page.unwrap_or(0);
 
     let search_type_string = r#type.unwrap_or_else(|| "natural".to_string());
     let options = match search_type_string.as_str() {
-        "natural" => SearchOptions::natural(sort_by, Desc),
-        "wide" => SearchOptions::wide(sort_by, Desc),
-        _ => SearchOptions::natural(sort_by, Desc),
+        "natural" => SearchOptions::natural(sort_by, ordering),
+        "wide" => SearchOptions::wide(sort_by, ordering),
+        _ => SearchOptions::natural(sort_by, ordering),
     };
 
     match search_captions_with_pagination(&state.es_client, &query, page, PAGE_SIZE, &options).await

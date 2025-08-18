@@ -1,4 +1,5 @@
 use crate::models::{ErrorResponse, SearchResponse, SearchResult, VideoMetadata};
+use crate::search::search_options::{SortBy, SortOrder};
 use gloo_net::http::Request;
 use yew::prelude::*;
 
@@ -45,6 +46,8 @@ pub async fn get_video_metadata(
 pub async fn execute_search(
     query: String,
     search_type: &str,
+    sort_by: SortBy,
+    sort_order: SortOrder,
     page: usize,
     search_results: UseStateHandle<Vec<SearchResult>>,
     total_results: UseStateHandle<Option<(usize, usize)>>, // (videos, captions)
@@ -52,11 +55,30 @@ pub async fn execute_search(
     loading: UseStateHandle<bool>,
 ) {
     let backend_url = "http://localhost:8000";
+
+    let sort_by_str = match sort_by {
+        SortBy::Relevance => "relevance",
+        SortBy::UploadDate => "upload_date",
+        SortBy::Duration => "duration",
+        SortBy::Views => "views",
+        SortBy::Likes => "likes",
+        SortBy::CaptionMatches => "caption_matches",
+        _ => "relevance",
+    };
+
+    let order_by_str = match sort_order {
+        SortOrder::Asc => "asc",
+        SortOrder::Desc => "desc",
+        _ => "desc",
+    };
+
     let url = format!(
-        "{}/search/?query={}&type={}&page={}",
+        "{}/search/?query={}&type={}&sort={}&order={}&page={}",
         backend_url,
         urlencoding::encode(&query),
         search_type,
+        sort_by_str,
+        order_by_str,
         page
     );
 

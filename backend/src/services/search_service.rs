@@ -1,7 +1,7 @@
 use crate::models::{Caption, SearchResponse, SearchResult};
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, SearchParts};
-use log::debug;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -52,6 +52,15 @@ pub enum SearchType {
 
 impl SearchOptions {
     pub fn natural(sort_by: SortBy, sort_order: SortOrder) -> Self {
+        info!(
+            "Using natural search: {:?}",
+            SearchOptions {
+                search_type: SearchType::Natural,
+                fuzzy_distance: None,
+                sort_by: sort_by.clone(),
+                sort_order: sort_order.clone(),
+            }
+        );
         Self {
             search_type: SearchType::Natural,
             fuzzy_distance: None,
@@ -61,6 +70,15 @@ impl SearchOptions {
     }
 
     pub fn wide(sort_by: SortBy, sort_order: SortOrder) -> Self {
+        info!(
+            "Using natural search: {:?}",
+            SearchOptions {
+                search_type: SearchType::Wide,
+                fuzzy_distance: Some("AUTO".to_string()),
+                sort_by: sort_by.clone(),
+                sort_order: sort_order.clone(),
+            }
+        );
         Self {
             search_type: SearchType::Wide,
             fuzzy_distance: Some("AUTO".to_string()),
