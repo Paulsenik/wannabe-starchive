@@ -1,16 +1,13 @@
-use crate::models::{SearchResponse, SearchResult};
-use crate::services::search_service;
-use crate::services::search_service::SearchType::{Natural, Wide};
-use crate::services::search_service::SortBy::Relevance;
-use crate::services::search_service::SortOrder::{Asc, Desc};
-use crate::services::search_service::{search_captions_with_pagination, SearchOptions, SortBy};
+use crate::models::{ErrorResponse, SearchResponse};
+use crate::services::search_service::SortBy::{CaptionMatches, Relevance};
+use crate::services::search_service::SortOrder::Desc;
+use crate::services::search_service::{search_captions_with_pagination, SearchOptions};
 use crate::AppState;
-use log::error;
-use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, State};
 
 static PAGE_SIZE: usize = 10;
+static MIN_QUERY_SIZE: usize = 3;
 
 #[get("/?<query>&<type>&<sort>&<page>")]
 pub async fn search_captions(
@@ -19,15 +16,25 @@ pub async fn search_captions(
     sort: Option<String>,
     page: Option<usize>,
     state: &State<AppState>,
-) -> Result<Json<SearchResponse>, rocket::serde::json::Value> {
-    let page = page.unwrap_or(0);
-    let per_page = 10; // Limit max per_page to 50
+) -> Result<Json<SearchResponse>, ErrorResponse> {
+    if query.len() < MIN_QUERY_SIZE {
+        eprintln!("Search error: Query too short");
+        return Err(ErrorResponse {
+            error: "Query too short".to_string(),
+            message: format!(
+                "Search query must be at least {} characters long.",
+                MIN_QUERY_SIZE
+            ),
+        });
+    }
 
     let sort_by = match sort.as_deref() {
-        Some("relevance") => SortBy::Relevance,
-        Some("caption_matches") => SortBy::CaptionMatches,
-        _ => SortBy::Relevance,
+        Some("relevance") => Relevance,
+        Some("caption_matches") => CaptionMatches,
+        _ => Relevance,
     };
+
+    let page = page.unwrap_or(0);
 
     let search_type_string = r#type.unwrap_or_else(|| "natural".to_string());
     let options = match search_type_string.as_str() {
@@ -36,15 +43,15 @@ pub async fn search_captions(
         _ => SearchOptions::natural(sort_by, Desc),
     };
 
-    match search_captions_with_pagination(&state.es_client, &query, page, per_page, &options).await
+    match search_captions_with_pagination(&state.es_client, &query, page, PAGE_SIZE, &options).await
     {
         Ok(response) => Ok(Json(response)),
         Err(e) => {
             eprintln!("Search error: {}", e);
-            Err(rocket::serde::json::json!({
-                "error": "Search failed",
-                "details": e.to_string()
-            }))
+            Err(ErrorResponse {
+                error: "Internal server error".to_string(),
+                message: "An error occurred while processing your search request.".to_string(),
+            })
         }
     }
 }

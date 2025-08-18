@@ -1,4 +1,4 @@
-use crate::models::{SearchResponse, SearchResult, VideoMetadata};
+use crate::models::{ErrorResponse, SearchResponse, SearchResult, VideoMetadata};
 use gloo_net::http::Request;
 use yew::prelude::*;
 
@@ -80,8 +80,19 @@ pub async fn execute_search(
                 let status = response.status();
                 match response.text().await {
                     Ok(error_text) => {
-                        error_message
-                            .set(Some(format!("Search failed ({}): {}", status, error_text)));
+                        // Try to parse as structured error response first
+                        match serde_json::from_str::<ErrorResponse>(&error_text) {
+                            Ok(error_response) => {
+                                error_message.set(Some(error_response.message));
+                            }
+                            Err(_) => {
+                                // Fallback to raw error text
+                                error_message.set(Some(format!(
+                                    "Search failed ({}): {}",
+                                    status, error_text
+                                )));
+                            }
+                        }
                     }
                     Err(_) => {
                         error_message.set(Some(format!("Search failed with status: {}", status)));

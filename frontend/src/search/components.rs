@@ -288,7 +288,7 @@ pub fn results_list(props: &ResultsListProps) -> Html {
                     </button>
                 </div>
                 {
-                    if let Some((total_videos, _)) = props.total_results {
+                    if let Some((_, _)) = props.total_results {
                         html! {
                             <p class="text-xs text-gray-500">
                                 {format!("Showing {} videos", grouped_videos.len())}

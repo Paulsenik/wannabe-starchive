@@ -58,3 +58,9 @@ pub struct MonitoredPlaylistStats {
     pub videos_indexed: i32,
     pub videos_added: i64,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct ErrorResponse {
+    pub error: String,
+    pub message: String,
+}

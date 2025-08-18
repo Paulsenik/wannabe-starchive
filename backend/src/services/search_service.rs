@@ -20,7 +20,6 @@ const MAX_COMBINED_CHARS: usize = 800;
 const PRE_TAG: &str = "<strong>";
 const POST_TAG: &str = "</strong>";
 
-/// Search options for different search strategies
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub search_type: SearchType,
@@ -64,12 +63,13 @@ impl SearchOptions {
     pub fn wide(sort_by: SortBy, sort_order: SortOrder) -> Self {
         Self {
             search_type: SearchType::Wide,
-            fuzzy_distance: Some("1".to_string()),
+            fuzzy_distance: Some("AUTO".to_string()),
             sort_by,
             sort_order,
         }
     }
 }
+
 pub async fn search_captions_with_pagination(
     es_client: &Elasticsearch,
     query_string: &str,
@@ -79,10 +79,9 @@ pub async fn search_captions_with_pagination(
 ) -> Result<SearchResponse> {
     let from = page * page_size;
 
-    // First, get total counts without pagination
+    // Total counts without pagination
     let total_counts = get_total_counts(es_client, query_string, options).await?;
 
-    // Then get paginated video IDs
     let video_ids =
         get_paginated_video_ids(es_client, query_string, from, page_size, options).await?;
 
@@ -126,7 +125,7 @@ pub async fn search_captions_with_pagination(
         total_videos: total_counts.0,
         total_captions: total_counts.1,
         page,
-        per_page: page_size,
+        page_size,
         total_pages,
     })
 }
@@ -184,7 +183,6 @@ async fn get_paginated_video_ids(
     size: usize,
     options: &SearchOptions,
 ) -> Result<Vec<String>> {
-    // Step 1: Get all matching video IDs with their caption scores
     let main_query = build_main_query_by_type(query_string, options);
 
     let query_body = json!({
@@ -215,7 +213,7 @@ async fn get_paginated_video_ids(
         .json::<Value>()
         .await?;
 
-    // Step 2: Extract video scoring data
+    // Extract video scoring data
     let empty_vec = vec![];
     let buckets = response["aggregations"]["unique_videos"]["buckets"]
         .as_array()
@@ -232,7 +230,7 @@ async fn get_paginated_video_ids(
         })
         .collect();
 
-    // Step 3: Sort deterministically based on multiple criteria
+    // Sort deterministically
     video_scores.sort_by(|a, b| {
         match options.sort_by {
             SortBy::Relevance => {
@@ -354,7 +352,7 @@ fn build_main_query_by_type(query_string: &str, options: &SearchOptions) -> Valu
                             "match_phrase": {
                                 "text.stemmed": {
                                     "query": query_string,
-                                    "boost": 2.0,
+                                    "boost": 1.0,
                                     "slop": 0  // No word reordering allowed
                                 }
                             }

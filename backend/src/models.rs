@@ -1,8 +1,12 @@
 // Add these to your existing models.rs file
 
 use crate::config::ADMIN_TOKEN;
+use rocket::http::{ContentType, Status};
 use rocket::request::{FromRequest, Outcome, Request};
+use rocket::response::Responder;
 use rocket::serde::{Deserialize, Serialize};
+use rocket::{response, Response};
+use std::io::Cursor;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AdminToken(pub String);
@@ -102,7 +106,7 @@ pub struct SearchResponse {
     pub total_videos: usize,
     pub total_captions: usize,
     pub page: usize,
-    pub per_page: usize,
+    pub page_size: usize,
     pub total_pages: usize,
 }
 
@@ -148,4 +152,21 @@ pub struct MonitoredPlaylist {
     pub active: bool,
     pub created_at: String,
     pub videos_added: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ErrorResponse {
+    pub error: String,
+    pub message: String,
+}
+
+impl<'r> Responder<'r, 'static> for ErrorResponse {
+    fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
+        let json = serde_json::to_string(&self).unwrap();
+        Response::build()
+            .status(Status::BadRequest)
+            .header(ContentType::JSON)
+            .sized_body(json.len(), Cursor::new(json))
+            .ok()
+    }
 }
