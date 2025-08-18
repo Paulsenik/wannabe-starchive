@@ -50,6 +50,26 @@ pub fn switch(routes: Route) -> Html {
     }
 }
 
+fn update_url_params(query: &str, search_type: &str) {
+    if let Some(window) = web_sys::window() {
+        let location = window.location();
+        let url = web_sys::Url::new(&location.href().unwrap()).unwrap();
+        let search_params = url.search_params();
+
+        // Set the query parameter
+        search_params.set("q", query);
+
+        // Set the search type parameter
+        search_params.set("t", search_type);
+
+        // Update the URL without reloading the page
+        if let Ok(history) = window.history() {
+            let _ =
+                history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&url.href()));
+        }
+    }
+}
+
 #[function_component(SearchApp)]
 pub fn search_app() -> Html {
     let search_query = use_state(|| get_query_param().unwrap_or_default());
@@ -136,6 +156,10 @@ pub fn search_app() -> Html {
 
             let is_wide = *is_wide_search;
             let search_type = if is_wide { "wide" } else { "natural" };
+
+            // Update URL parameters when performing a search
+            update_url_params(&query, search_type);
+
             wasm_bindgen_futures::spawn_local(async move {
                 execute_search(
                     query,

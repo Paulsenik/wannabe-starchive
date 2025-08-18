@@ -23,7 +23,7 @@ pub struct SearchResponse {
     pub total_videos: usize,
     pub total_captions: usize,
     pub page: usize,
-    pub per_page: usize,
+    pub page_size: usize,
     pub total_pages: usize,
 }
 
