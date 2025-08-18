@@ -237,50 +237,272 @@ async fn get_paginated_video_ids(
         .as_array()
         .unwrap_or(&empty_vec);
 
-    let mut video_scores: Vec<(String, f64, f64, i64)> = buckets
+    let mut video_data: Vec<VideoSortData> = buckets
         .iter()
         .filter_map(|bucket| {
             let video_id = bucket["key"].as_str()?.to_string();
             let avg_score = bucket["avg_score"]["value"].as_f64().unwrap_or(0.0);
             let max_score = bucket["max_score"]["value"].as_f64().unwrap_or(0.0);
             let match_count = bucket["doc_count"].as_i64().unwrap_or(0);
-            Some((video_id, avg_score, max_score, match_count))
+
+            Some(VideoSortData {
+                video_id,
+                avg_score,
+                max_score,
+                match_count,
+                upload_date: 0.0,
+                duration: 0.0,
+                views: 0.0,
+                likes: 0.0,
+            })
         })
         .collect();
 
-    // Sort deterministically
-    video_scores.sort_by(|a, b| {
-        match options.sort_by {
+    // If we need video metadata for sorting, fetch it from youtube_videos index
+    if matches!(
+        options.sort_by,
+        SortBy::UploadDate | SortBy::Duration | SortBy::Views | SortBy::Likes
+    ) {
+        fetch_video_metadata_for_sorting(es_client, &mut video_data).await?;
+    }
+
+    for data in &mut video_data {
+        info!("Video: {} - avg_score: {}, max_score: {}, match_count: {}, upload_date: {}, duration: {}, views: {}, likes: {}",
+                data.video_id, data.avg_score, data.max_score, data.match_count, data.upload_date, data.duration, data.views, data.likes);
+    }
+
+    // Sort based on the specified criteria and order
+    video_data.sort_by(|a, b| {
+        let ordering = match options.sort_by {
             SortBy::Relevance => {
-                // Primary: avg_score desc, Secondary: video_id asc
-                b.1.partial_cmp(&a.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.0.cmp(&b.0))
+                // Primary: avg_score, Secondary: video_id (for deterministic results)
+                compare_with_order(a.avg_score, b.avg_score, &options.sort_order)
+                    .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::CaptionMatches => {
-                // Primary: match_count desc, Secondary: avg_score desc, Tertiary: video_id asc
-                b.3.cmp(&a.3)
-                    .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
-                    .then_with(|| a.0.cmp(&b.0))
+                // Primary: match_count, Secondary: avg_score, Tertiary: video_id
+                compare_with_order(
+                    a.match_count as f64,
+                    b.match_count as f64,
+                    &options.sort_order,
+                )
+                .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                .then_with(|| a.video_id.cmp(&b.video_id))
             }
-            _ => {
-                // Fallback: max_score desc, video_id asc
-                b.2.partial_cmp(&a.2)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.0.cmp(&b.0))
+            SortBy::UploadDate => {
+                // Primary: upload_date, Secondary: avg_score, Tertiary: video_id
+                compare_with_order(a.upload_date, b.upload_date, &options.sort_order)
+                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                    .then_with(|| a.video_id.cmp(&b.video_id))
             }
-        }
+            SortBy::Duration => {
+                // Primary: duration, Secondary: avg_score, Tertiary: video_id
+                compare_with_order(a.duration, b.duration, &options.sort_order)
+                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                    .then_with(|| a.video_id.cmp(&b.video_id))
+            }
+            SortBy::Views => {
+                // Primary: views, Secondary: avg_score, Tertiary: video_id
+                compare_with_order(a.views, b.views, &options.sort_order)
+                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                    .then_with(|| a.video_id.cmp(&b.video_id))
+            }
+            SortBy::Likes => {
+                // Primary: likes, Secondary: avg_score, Tertiary: video_id
+                compare_with_order(a.likes, b.likes, &options.sort_order)
+                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                    .then_with(|| a.video_id.cmp(&b.video_id))
+            }
+        };
+
+        ordering
     });
 
-    // Step 4: Apply pagination
-    let video_ids: Vec<String> = video_scores
+    // Apply pagination
+    let video_ids: Vec<String> = video_data
         .into_iter()
         .skip(from)
         .take(size)
-        .map(|(video_id, _, _, _)| video_id)
+        .map(|data| data.video_id)
         .collect();
 
     Ok(video_ids)
+}
+
+/// Fetch video metadata from youtube_videos index for sorting purposes
+async fn fetch_video_metadata_for_sorting(
+    es_client: &Elasticsearch,
+    video_data: &mut Vec<VideoSortData>,
+) -> Result<()> {
+    // Extract video IDs
+    let video_ids: Vec<&String> = video_data.iter().map(|v| &v.video_id).collect();
+
+    // Build multi-get query for all video IDs
+    let mut docs = Vec::new();
+    for video_id in video_ids {
+        docs.push(json!({
+            "_index": "youtube_videos",
+            "_id": video_id
+        }));
+    }
+
+    let mget_body = json!({
+        "docs": docs
+    });
+
+    let response = es_client
+        .mget(elasticsearch::MgetParts::None)
+        .body(mget_body)
+        .send()
+        .await
+        .context("Failed to fetch video metadata")?
+        .json::<Value>()
+        .await?;
+
+    // Parse the metadata and update video_data
+    if let Some(docs_array) = response.get("docs").and_then(|d| d.as_array()) {
+        for doc in docs_array {
+            if let (Some(video_id), Some(source)) = (
+                doc.get("_id").and_then(|id| id.as_str()),
+                doc.get("_source"),
+            ) {
+                // Find the corresponding video data entry
+                if let Some(video_entry) = video_data.iter_mut().find(|v| v.video_id == video_id) {
+                    // Parse metadata fields
+                    video_entry.upload_date = parse_iso8601_to_timestamp(
+                        source
+                            .get("upload_date")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or(""),
+                    );
+                    video_entry.duration = parse_iso8601_duration_to_seconds(
+                        source
+                            .get("duration")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or(""),
+                    );
+                    video_entry.views =
+                        source.get("views").and_then(|v| v.as_i64()).unwrap_or(0) as f64;
+                    video_entry.likes =
+                        source.get("likes").and_then(|l| l.as_i64()).unwrap_or(0) as f64;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Parse ISO8601 date string to Unix timestamp for sorting
+fn parse_iso8601_to_timestamp(date_str: &str) -> f64 {
+    if date_str.is_empty() {
+        return 0.0;
+    }
+
+    // Try to parse with chrono
+    use chrono::{DateTime, Utc};
+    if let Ok(dt) = date_str.parse::<DateTime<Utc>>() {
+        return dt.timestamp() as f64;
+    }
+
+    0.0
+}
+
+/// Parse ISO8601 duration string (PT1H2M3S) to total seconds for sorting
+fn parse_iso8601_duration_to_seconds(duration_str: &str) -> f64 {
+    if duration_str.is_empty() {
+        return 0.0;
+    }
+
+    // Simple parser for PT format (PT1H2M3S)
+    if !duration_str.starts_with("PT") {
+        return 0.0;
+    }
+
+    let duration_part = &duration_str[2..]; // Remove "PT"
+    let mut total_seconds = 0.0;
+    let mut current_number = String::new();
+
+    for ch in duration_part.chars() {
+        if ch.is_ascii_digit() || ch == '.' {
+            current_number.push(ch);
+        } else {
+            if let Ok(num) = current_number.parse::<f64>() {
+                match ch {
+                    'H' => total_seconds += num * 3600.0, // Hours
+                    'M' => total_seconds += num * 60.0,   // Minutes
+                    'S' => total_seconds += num,          // Seconds
+                    _ => {}
+                }
+            }
+            current_number.clear();
+        }
+    }
+
+    total_seconds
+}
+
+// Helper struct to hold all sorting data for a video - simplified with all f64 values
+#[derive(Debug)]
+struct VideoSortData {
+    video_id: String,
+    avg_score: f64,
+    max_score: f64,
+    match_count: i64,
+    upload_date: f64,
+    duration: f64,
+    views: f64,
+    likes: f64,
+}
+
+// Helper function to extract numeric values with fallback to 0.0
+fn extract_numeric_value(value: &Value) -> f64 {
+    // Try to get the value from aggregation result
+    if let Some(agg_value) = value.get("value") {
+        // Handle different numeric types
+        if let Some(f) = agg_value.as_f64() {
+            return f;
+        }
+        if let Some(i) = agg_value.as_i64() {
+            return i as f64;
+        }
+        if let Some(u) = agg_value.as_u64() {
+            return u as f64;
+        }
+        // Handle string numbers (in case they're stored as strings)
+        if let Some(s) = agg_value.as_str() {
+            if let Ok(parsed) = s.parse::<f64>() {
+                return parsed;
+            }
+        }
+    }
+
+    // Fallback: try to parse the value directly
+    if let Some(f) = value.as_f64() {
+        return f;
+    }
+    if let Some(i) = value.as_i64() {
+        return i as f64;
+    }
+    if let Some(u) = value.as_u64() {
+        return u as f64;
+    }
+    if let Some(s) = value.as_str() {
+        if let Ok(parsed) = s.parse::<f64>() {
+            return parsed;
+        }
+    }
+
+    // Default fallback
+    0.0
+}
+
+// Helper function to compare values with the specified sort order
+fn compare_with_order(a: f64, b: f64, order: &SortOrder) -> std::cmp::Ordering {
+    match order {
+        SortOrder::Asc => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
+        SortOrder::Desc => b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal),
+    }
 }
 
 /// Get all matching captions for a specific video
