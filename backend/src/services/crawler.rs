@@ -1,7 +1,7 @@
 use crate::config::{LANGUAGE_PRIORITY, YOUTUBE_API_KEY};
 use crate::models::{Caption, QueueItem, VideoMetadata};
 use crate::utils;
-use elasticsearch::{Elasticsearch, IndexParts};
+use elasticsearch::{Elasticsearch, IndexParts, UpdateParts};
 use lazy_static::lazy_static;
 use log::{error, info};
 use reqwest::Client;
@@ -192,10 +192,7 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
                     .collect()
             })
             .unwrap_or_default(),
-        has_captions: item["contentDetails"]["caption"]
-            .as_str()
-            .map(|s| s == "true")
-            .unwrap_or(false),
+        has_captions: false,
         crawl_date: chrono::Utc::now().timestamp(),
         video_id: video_id.to_string(),
         playlists: vec![],
@@ -269,6 +266,35 @@ pub async fn process_video_metadata(
     }
 }
 
+async fn update_has_captions(es_client: &Elasticsearch, video_id: &str) {
+    match es_client
+        .update(UpdateParts::IndexId("youtube_videos", video_id))
+        .body(json!({
+            "doc": {
+                "has_captions": true
+            }
+        }))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if !response.status_code().is_success() {
+                error!(
+                    "Failed to update has_captions for video ID {}: {:?}",
+                    video_id,
+                    response.text().await
+                );
+            }
+        }
+        Err(e) => {
+            error!(
+                "Failed to update has_captions for video ID {}: {e:?}",
+                video_id
+            );
+        }
+    }
+}
+
 pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
     match YOUTUBE_TRANSCRIPT_API.list_transcripts(&video_id).await {
         Ok(transcript_list) => {
@@ -325,6 +351,8 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
                         captions_to_index.len()
                     );
 
+                    let mut captions_success = true;
+
                     for caption in captions_to_index {
                         let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
                         match es_client
@@ -335,22 +363,28 @@ pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
                         {
                             Ok(response) => {
                                 if response.status_code().is_success() {
-                                    // info!("Indexed caption for video ID: {}", caption.video_id);
+                                    //info!("Indexed caption for video ID: {}", caption.video_id);
                                 } else {
                                     error!(
                                         "Failed to index caption for video ID {}: {:?}",
                                         caption.video_id,
                                         response.text().await
                                     );
+                                    captions_success = false;
                                 }
                             }
                             Err(e) => {
+                                captions_success = false;
                                 error!(
                             "Failed to send caption to Elasticsearch for video ID {}: {e:?}",
                             caption.video_id
                         );
                             }
                         }
+                    }
+
+                    if captions_success {
+                        update_has_captions(es_client, video_id).await;
                     }
                 }
                 Err(e) => {
