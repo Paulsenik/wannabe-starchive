@@ -10,6 +10,7 @@ mod api;
 mod config;
 mod models;
 mod services;
+mod utils;
 
 use crate::api::{
     activate_channel, activate_playlist, add_channel, add_playlist, check_channel, check_playlist,

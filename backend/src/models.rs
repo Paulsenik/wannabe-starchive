@@ -124,9 +124,9 @@ pub struct VideoMetadata {
     pub title: String,
     pub channel_name: String,
     pub channel_id: String,
-    pub upload_date: String,
-    pub crawl_date: String,
-    pub duration: String,
+    pub upload_date: i64, // unix
+    pub crawl_date: i64,  // unix
+    pub duration: i64,    // in seconds
     pub likes: i64,
     pub views: i64,
     pub comment_count: i64,

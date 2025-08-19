@@ -1,10 +1,4 @@
-pub fn format_iso8601_date(iso_date: &str) -> String {
-    if let Ok(datetime) = iso_date.parse::<chrono::DateTime<chrono::Utc>>() {
-        datetime.format("%Y-%m-%d").to_string()
-    } else {
-        iso_date.to_string()
-    }
-}
+use chrono::DateTime;
 
 // Formats each x1000 step
 pub fn format_number(number: i64) -> String {
@@ -21,7 +15,7 @@ pub fn format_number(number: i64) -> String {
     result
 }
 
-pub fn format_timestamp(seconds: f64) -> String {
+pub fn format_duration(seconds: i64) -> String {
     let minutes = (seconds as u32) / 60;
     let remaining_seconds = (seconds as u32) % 60;
     format!("{:02}:{:02}", minutes, remaining_seconds)
@@ -46,4 +40,10 @@ pub fn format_iso8601_duration(duration: &str) -> String {
     } else {
         format!("{:02}:{:02}", minutes, seconds)
     }
+}
+
+pub fn format_unix_date(timestamp: i64) -> String {
+    let date = DateTime::from_timestamp(timestamp, 0)
+        .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap());
+    date.format("%Y-%m-%d").to_string()
 }

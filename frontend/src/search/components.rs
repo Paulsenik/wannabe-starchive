@@ -1,7 +1,7 @@
 use crate::models::SearchResult;
 use crate::search::api::get_video_metadata;
 use crate::search::search_options::{SearchOptionsDropdowns, SortBy, SortOrder};
-use crate::utils::{format_iso8601_date, format_iso8601_duration, format_number, format_timestamp};
+use crate::utils::{format_duration, format_number, format_unix_date};
 use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
@@ -102,7 +102,7 @@ pub fn search_result_item(props: &SearchResultItemProps) -> Html {
                 <a href={format!("https://www.youtube.com/watch?v={}&t={}s", props.result.video_id, props.result.start_time)}
                    target="_blank"
                    class="ml-2 text-blue-600 hover:underline">
-                {format!("{} ↗ ", format_timestamp(props.result.start_time))}
+                {format!("{} ↗ ", format_duration(props.result.start_time as i64))}
                 </a>
             { Html::from_html_unchecked(AttrValue::from(props.result.snippet_html.clone())) }
             </p>
@@ -165,8 +165,8 @@ pub fn video_results(props: &VideoResultsProps) -> Html {
                                 html! {
                                     <div class="bg-gray-50 p-4 text-sm flex flex-wrap gap-4">
                                         <p class="flex items-center">{"📺 "}<a href={format!("https://www.youtube.com/channel/{}",&metadata.channel_id)} class="text-blue-600 hover:underline">{&metadata.channel_name}</a></p>
-                                        <p class="flex items-center">{"📅 "}<span>{format_iso8601_date(&metadata.upload_date)}</span></p>
-                                        <p class="flex items-center">{"⏱️ "}<span>{format_iso8601_duration(&metadata.duration)}</span></p>
+                                        <p class="flex items-center">{"📅 "}<span>{format_unix_date(metadata.upload_date)}</span></p>
+                                        <p class="flex items-center">{"⏱️ "}<span>{format_duration(metadata.duration)}</span></p>
                                         <p class="flex items-center">{"👁️ "}<span>{format_number(metadata.views)}</span></p>
                                         <p class="flex items-center">{"👍 "}<span>{format_number(metadata.likes)}</span></p>
                                         <p class="flex items-center">{"💬 "}<span>{format_number(metadata.comment_count)}</span></p>

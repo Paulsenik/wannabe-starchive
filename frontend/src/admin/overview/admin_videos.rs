@@ -1,6 +1,6 @@
 use crate::models::VideoMetadata;
 use crate::router::Route;
-use crate::utils::{format_iso8601_date, format_iso8601_duration, format_number};
+use crate::utils::{format_duration, format_number, format_unix_date};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::window;
@@ -140,10 +140,10 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                                 <a href={format!("https://www.youtube.com/channel/{}",&video.channel_id)} class="text-blue-600 hover:underline">{&video.channel_name}</a>
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {format_iso8601_date(&video.upload_date)}
+                                                                {format_unix_date(video.upload_date)}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {format_iso8601_duration(&video.duration)}
+                                                                {format_duration(video.duration)}
                                                             </td>
                                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {format_number(video.views)}

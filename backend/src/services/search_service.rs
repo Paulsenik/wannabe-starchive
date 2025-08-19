@@ -1,4 +1,5 @@
 use crate::models::{Caption, SearchResponse, SearchResult};
+use crate::utils;
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, SearchParts};
 use log::{debug, info};
@@ -250,8 +251,8 @@ async fn get_paginated_video_ids(
                 avg_score,
                 max_score,
                 match_count,
-                upload_date: 0.0,
-                duration: 0.0,
+                upload_date: 0,
+                duration: 0,
                 views: 0.0,
                 likes: 0.0,
             })
@@ -276,41 +277,51 @@ async fn get_paginated_video_ids(
         let ordering = match options.sort_by {
             SortBy::Relevance => {
                 // Primary: avg_score, Secondary: video_id (for deterministic results)
-                compare_with_order(a.avg_score, b.avg_score, &options.sort_order)
+                utils::compare_with_order_float(a.avg_score, b.avg_score, &options.sort_order)
                     .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::CaptionMatches => {
                 // Primary: match_count, Secondary: avg_score, Tertiary: video_id
-                compare_with_order(
+                utils::compare_with_order_float(
                     a.match_count as f64,
                     b.match_count as f64,
                     &options.sort_order,
                 )
-                .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                .then_with(|| {
+                    utils::compare_with_order_float(a.avg_score, b.avg_score, &SortOrder::Desc)
+                })
                 .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::UploadDate => {
                 // Primary: upload_date, Secondary: avg_score, Tertiary: video_id
-                compare_with_order(a.upload_date, b.upload_date, &options.sort_order)
-                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                utils::compare_with_order_int(a.upload_date, b.upload_date, &options.sort_order)
+                    .then_with(|| {
+                        utils::compare_with_order_float(a.avg_score, b.avg_score, &SortOrder::Desc)
+                    })
                     .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::Duration => {
                 // Primary: duration, Secondary: avg_score, Tertiary: video_id
-                compare_with_order(a.duration, b.duration, &options.sort_order)
-                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                utils::compare_with_order_int(a.duration, b.duration, &options.sort_order)
+                    .then_with(|| {
+                        utils::compare_with_order_float(a.avg_score, b.avg_score, &SortOrder::Desc)
+                    })
                     .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::Views => {
                 // Primary: views, Secondary: avg_score, Tertiary: video_id
-                compare_with_order(a.views, b.views, &options.sort_order)
-                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                utils::compare_with_order_float(a.views, b.views, &options.sort_order)
+                    .then_with(|| {
+                        utils::compare_with_order_float(a.avg_score, b.avg_score, &SortOrder::Desc)
+                    })
                     .then_with(|| a.video_id.cmp(&b.video_id))
             }
             SortBy::Likes => {
                 // Primary: likes, Secondary: avg_score, Tertiary: video_id
-                compare_with_order(a.likes, b.likes, &options.sort_order)
-                    .then_with(|| compare_with_order(a.avg_score, b.avg_score, &SortOrder::Desc))
+                utils::compare_with_order_float(a.likes, b.likes, &options.sort_order)
+                    .then_with(|| {
+                        utils::compare_with_order_float(a.avg_score, b.avg_score, &SortOrder::Desc)
+                    })
                     .then_with(|| a.video_id.cmp(&b.video_id))
             }
         };
@@ -369,18 +380,12 @@ async fn fetch_video_metadata_for_sorting(
                 // Find the corresponding video data entry
                 if let Some(video_entry) = video_data.iter_mut().find(|v| v.video_id == video_id) {
                     // Parse metadata fields
-                    video_entry.upload_date = parse_iso8601_to_timestamp(
-                        source
-                            .get("upload_date")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or(""),
-                    );
-                    video_entry.duration = parse_iso8601_duration_to_seconds(
-                        source
-                            .get("duration")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or(""),
-                    );
+                    video_entry.upload_date = source
+                        .get("upload_date")
+                        .and_then(|d| d.as_i64())
+                        .unwrap_or(0);
+                    video_entry.duration =
+                        source.get("duration").and_then(|d| d.as_i64()).unwrap_or(0);
                     video_entry.views =
                         source.get("views").and_then(|v| v.as_i64()).unwrap_or(0) as f64;
                     video_entry.likes =
@@ -393,55 +398,6 @@ async fn fetch_video_metadata_for_sorting(
     Ok(())
 }
 
-/// Parse ISO8601 date string to Unix timestamp for sorting
-fn parse_iso8601_to_timestamp(date_str: &str) -> f64 {
-    if date_str.is_empty() {
-        return 0.0;
-    }
-
-    // Try to parse with chrono
-    use chrono::{DateTime, Utc};
-    if let Ok(dt) = date_str.parse::<DateTime<Utc>>() {
-        return dt.timestamp() as f64;
-    }
-
-    0.0
-}
-
-/// Parse ISO8601 duration string (PT1H2M3S) to total seconds for sorting
-fn parse_iso8601_duration_to_seconds(duration_str: &str) -> f64 {
-    if duration_str.is_empty() {
-        return 0.0;
-    }
-
-    // Simple parser for PT format (PT1H2M3S)
-    if !duration_str.starts_with("PT") {
-        return 0.0;
-    }
-
-    let duration_part = &duration_str[2..]; // Remove "PT"
-    let mut total_seconds = 0.0;
-    let mut current_number = String::new();
-
-    for ch in duration_part.chars() {
-        if ch.is_ascii_digit() || ch == '.' {
-            current_number.push(ch);
-        } else {
-            if let Ok(num) = current_number.parse::<f64>() {
-                match ch {
-                    'H' => total_seconds += num * 3600.0, // Hours
-                    'M' => total_seconds += num * 60.0,   // Minutes
-                    'S' => total_seconds += num,          // Seconds
-                    _ => {}
-                }
-            }
-            current_number.clear();
-        }
-    }
-
-    total_seconds
-}
-
 // Helper struct to hold all sorting data for a video - simplified with all f64 values
 #[derive(Debug)]
 struct VideoSortData {
@@ -449,60 +405,10 @@ struct VideoSortData {
     avg_score: f64,
     max_score: f64,
     match_count: i64,
-    upload_date: f64,
-    duration: f64,
+    upload_date: i64,
+    duration: i64,
     views: f64,
     likes: f64,
-}
-
-// Helper function to extract numeric values with fallback to 0.0
-fn extract_numeric_value(value: &Value) -> f64 {
-    // Try to get the value from aggregation result
-    if let Some(agg_value) = value.get("value") {
-        // Handle different numeric types
-        if let Some(f) = agg_value.as_f64() {
-            return f;
-        }
-        if let Some(i) = agg_value.as_i64() {
-            return i as f64;
-        }
-        if let Some(u) = agg_value.as_u64() {
-            return u as f64;
-        }
-        // Handle string numbers (in case they're stored as strings)
-        if let Some(s) = agg_value.as_str() {
-            if let Ok(parsed) = s.parse::<f64>() {
-                return parsed;
-            }
-        }
-    }
-
-    // Fallback: try to parse the value directly
-    if let Some(f) = value.as_f64() {
-        return f;
-    }
-    if let Some(i) = value.as_i64() {
-        return i as f64;
-    }
-    if let Some(u) = value.as_u64() {
-        return u as f64;
-    }
-    if let Some(s) = value.as_str() {
-        if let Ok(parsed) = s.parse::<f64>() {
-            return parsed;
-        }
-    }
-
-    // Default fallback
-    0.0
-}
-
-// Helper function to compare values with the specified sort order
-fn compare_with_order(a: f64, b: f64, order: &SortOrder) -> std::cmp::Ordering {
-    match order {
-        SortOrder::Asc => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-        SortOrder::Desc => b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal),
-    }
 }
 
 /// Get all matching captions for a specific video

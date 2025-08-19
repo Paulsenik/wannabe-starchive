@@ -1,5 +1,6 @@
 use crate::config::YOUTUBE_API_KEY;
 use crate::models::{Caption, QueueItem, VideoMetadata};
+use crate::utils;
 use elasticsearch::{Elasticsearch, IndexParts};
 use log::{error, info};
 use reqwest::Client;
@@ -141,10 +142,12 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .as_str()
             .unwrap_or("")
             .to_string(),
-        upload_date: item["snippet"]["publishedAt"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        upload_date: utils::parse_iso8601_to_timestamp(
+            &*item["snippet"]["publishedAt"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        ),
         likes: item["statistics"]["likeCount"]
             .as_str()
             .unwrap_or("0")
@@ -155,10 +158,12 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .unwrap_or("0")
             .parse()
             .unwrap_or(0),
-        duration: item["contentDetails"]["duration"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        duration: utils::parse_iso8601_duration_to_seconds(
+            &*item["contentDetails"]["duration"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+        ),
         comment_count: item["statistics"]["commentCount"]
             .as_str()
             .unwrap_or("0")
@@ -177,7 +182,7 @@ async fn fetch_video_metadata(video_id: &str) -> Result<VideoMetadata, Box<dyn s
             .as_str()
             .map(|s| s == "true")
             .unwrap_or(false),
-        crawl_date: chrono::Utc::now().to_rfc3339(),
+        crawl_date: chrono::Utc::now().timestamp(),
         video_id: video_id.to_string(),
         playlists: vec![],
     })
@@ -194,14 +199,14 @@ pub async fn process_video_metadata(
             title: String::new(),
             channel_name: String::new(),
             channel_id: String::new(),
-            upload_date: String::new(),
+            upload_date: 0,
             likes: 0,
             views: 0,
-            duration: String::new(),
+            duration: 0,
             comment_count: 0,
             tags: Vec::new(),
             has_captions: false,
-            crawl_date: String::new(),
+            crawl_date: 0,
             video_id: String::new(),
             playlists: vec![],
         }
