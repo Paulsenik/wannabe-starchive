@@ -14,8 +14,8 @@ mod utils;
 
 use crate::api::{
     activate_channel, activate_playlist, add_channel, add_playlist, check_channel, check_playlist,
-    deactivate_channel, deactivate_playlist, get_channels, get_playlists, remove_channel,
-    remove_playlist,
+    deactivate_channel, deactivate_playlist, get_channels, get_playlists, get_videos_metadata,
+    remove_channel, remove_playlist,
 };
 use api::{
     admin_enqueue, admin_login, admin_stats, delete_video_endpoint, get_queue, get_video_metadata,
@@ -44,7 +44,10 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(app_state)
         .mount("/search", routes![search_captions])
-        .mount("/video", routes![list_videos, get_video_metadata])
+        .mount(
+            "/video",
+            routes![list_videos, get_video_metadata, get_videos_metadata],
+        )
         .mount(
             "/monitor",
             routes![

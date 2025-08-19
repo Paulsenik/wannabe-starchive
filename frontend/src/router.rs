@@ -138,7 +138,6 @@ pub fn search_app() -> Html {
 
     // Helper function to execute search with current parameters
     let execute_current_search = {
-        let search_query = search_query.clone();
         let search_results = search_results.clone();
         let total_results = total_results.clone();
         let loading = loading.clone();
@@ -146,7 +145,6 @@ pub fn search_app() -> Html {
         let is_wide_search = is_wide_search.clone();
         let sort_by = sort_by.clone();
         let sort_order = sort_order.clone();
-        let current_page = current_page.clone();
 
         move |query: String, page: usize| {
             let search_results = search_results.clone();

@@ -1,6 +1,7 @@
 use crate::models::{ErrorResponse, SearchResponse, SearchResult, VideoMetadata};
 use crate::search::search_options::{SortBy, SortOrder};
 use gloo_net::http::Request;
+use serde::{Deserialize, Serialize};
 use yew::prelude::*;
 
 pub async fn get_raw_video_metadata(
@@ -9,6 +10,11 @@ pub async fn get_raw_video_metadata(
     let backend_url = "http://localhost:8000";
     let url = format!("{backend_url}/video/{video_id}");
     Request::get(&url).send().await
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BatchVideoRequest {
+    pub video_ids: Vec<String>,
 }
 
 pub async fn get_video_metadata(
@@ -63,13 +69,11 @@ pub async fn execute_search(
         SortBy::Views => "views",
         SortBy::Likes => "likes",
         SortBy::CaptionMatches => "caption_matches",
-        _ => "relevance",
     };
 
     let order_by_str = match sort_order {
         SortOrder::Asc => "asc",
         SortOrder::Desc => "desc",
-        _ => "desc",
     };
 
     let url = format!(
