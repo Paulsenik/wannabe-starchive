@@ -1,13 +1,27 @@
-use crate::config::YOUTUBE_API_KEY;
+use crate::config::{LANGUAGE_PRIORITY, YOUTUBE_API_KEY};
 use crate::models::{Caption, QueueItem, VideoMetadata};
 use crate::utils;
 use elasticsearch::{Elasticsearch, IndexParts};
+use lazy_static::lazy_static;
 use log::{error, info};
 use reqwest::Client;
 use serde_json::json;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use yt_transcript_rs::api::YouTubeTranscriptApi;
+
+lazy_static! {
+    static ref YOUTUBE_TRANSCRIPT_API: YouTubeTranscriptApi =
+        YouTubeTranscriptApi::new(None, None, None).expect("Failed to create YouTubeTranscriptApi");
+}
+
+pub fn split_language_codes(language_codes: &str) -> Vec<&str> {
+    // vec!["en", "en-GB", "en-US", "de", "de-DE"]
+    language_codes
+        .split(',')
+        .map(|s| s.trim())
+        .collect::<Vec<&str>>()
+}
 
 pub struct VideoQueue {
     queue: Arc<Mutex<VecDeque<QueueItem>>>,
@@ -256,58 +270,96 @@ pub async fn process_video_metadata(
 }
 
 pub async fn process_video_captions(es_client: &Elasticsearch, video_id: &str) {
-    let languages = &["en"];
+    match YOUTUBE_TRANSCRIPT_API.list_transcripts(&video_id).await {
+        Ok(transcript_list) => {
+            // Get available language codes, not display names
+            let available_language_codes: Vec<_> = transcript_list
+                .generated_transcripts
+                .keys()
+                .chain(transcript_list.manually_created_transcripts.keys())
+                .collect();
 
-    let api =
-        YouTubeTranscriptApi::new(None, None, None).expect("Failed to create YouTubeTranscriptApi");
+            let selected_language_code = LANGUAGE_PRIORITY
+                .iter()
+                .find(|&lang| available_language_codes.iter().any(|&avail| avail == lang))
+                .unwrap_or(&"en".to_string())
+                .to_string();
 
-    match api.fetch_transcript(&video_id, languages, false).await {
-        Ok(transcript) => {
-            let mut captions_to_index: Vec<Caption> = Vec::new();
-
-            for entry in transcript {
-                captions_to_index.push(Caption {
-                    video_id: video_id.to_string(),
-                    text: entry.text,
-                    start_time: entry.start,
-                    end_time: entry.start + entry.duration,
+            // Get the display name for logging
+            let selected_transcript = transcript_list
+                .manually_created_transcripts
+                .get(&selected_language_code)
+                .or_else(|| {
+                    transcript_list
+                        .generated_transcripts
+                        .get(&selected_language_code)
                 });
-            }
+
+            let display_name = selected_transcript
+                .map(|t| t.language.as_str())
+                .unwrap_or(&selected_language_code);
+
             info!(
-                "Fetched {} captions for video ID: {video_id}",
-                captions_to_index.len()
+                "Selected language \"{}\" ({}) for video {}: available codes: {:?}",
+                display_name, selected_language_code, video_id, available_language_codes
             );
 
-            for caption in captions_to_index {
-                let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
-                match es_client
-                    .index(IndexParts::IndexId("youtube_captions", &doc_id))
-                    .body(json!(caption))
-                    .send()
-                    .await
-                {
-                    Ok(response) => {
-                        if response.status_code().is_success() {
-                            // info!("Indexed caption for video ID: {}", caption.video_id);
-                        } else {
-                            error!(
-                                "Failed to index caption for video ID {}: {:?}",
-                                caption.video_id,
-                                response.text().await
-                            );
-                        }
+            let languages = &[selected_language_code.as_str()];
+            match YOUTUBE_TRANSCRIPT_API
+                .fetch_transcript(&video_id, languages, false)
+                .await
+            {
+                Ok(transcript) => {
+                    let mut captions_to_index: Vec<Caption> = Vec::new();
+
+                    for entry in transcript {
+                        captions_to_index.push(Caption {
+                            video_id: video_id.to_string(),
+                            text: entry.text,
+                            start_time: entry.start,
+                            end_time: entry.start + entry.duration,
+                        });
                     }
-                    Err(e) => {
-                        error!(
+                    info!(
+                        "Fetched {} captions for video ID: {video_id}",
+                        captions_to_index.len()
+                    );
+
+                    for caption in captions_to_index {
+                        let doc_id = format!("{}_{}", caption.video_id, caption.start_time);
+                        match es_client
+                            .index(IndexParts::IndexId("youtube_captions", &doc_id))
+                            .body(json!(caption))
+                            .send()
+                            .await
+                        {
+                            Ok(response) => {
+                                if response.status_code().is_success() {
+                                    // info!("Indexed caption for video ID: {}", caption.video_id);
+                                } else {
+                                    error!(
+                                        "Failed to index caption for video ID {}: {:?}",
+                                        caption.video_id,
+                                        response.text().await
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                error!(
                             "Failed to send caption to Elasticsearch for video ID {}: {e:?}",
                             caption.video_id
                         );
+                            }
+                        }
                     }
+                }
+                Err(e) => {
+                    error!("Failed to fetch transcript for video ID {video_id}: {e:?}");
                 }
             }
         }
         Err(e) => {
-            error!("Failed to fetch transcript for video ID {video_id}: {e:?}");
+            error!("Failed to list transcripts for video ID {video_id}: {e:?}");
         }
     }
 }

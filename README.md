@@ -35,9 +35,10 @@ touch backend/.env
 ELASTICSEARCH_URL = "http://localhost:9200"
 # https://console.cloud.google.com/apis/api/youtube.googleapis.com/credentials
 YOUTUBE_API_KEY = "YOUR-GOOGLE-API-KEY"
+ADMIN_TOKEN = "BENE_KANN_KEIN_COUNTER_STRIKE"
+LANGUAGE_PRIORITY = "en,en-GB,en-US,de,de-DE"
 
 # Optional
-ADMIN_TOKEN = "BENE_KANN_KEIN_COUNTER_STRIKE"
 CRAWL_BURST_MAX = 1
 MONITOR_CHECK_SCHEDULE = "0 */10 * * * *"
 CRAWL_QUEUE_SCHEDULE = "*/30 * * * * *"

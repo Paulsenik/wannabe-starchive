@@ -1,5 +1,5 @@
 use crate::models::AdminToken;
-use crate::services::crawler::{crawl_youtube_video, VideoQueue};
+use crate::services::crawler::{crawl_youtube_video, split_language_codes, VideoQueue};
 use crate::services::elasticsearch_service::create_es_index;
 use crate::services::monitoring_service::setup_monitoring;
 use crate::AppState;
@@ -35,6 +35,14 @@ lazy_static! {
         env::var("MONITOR_CHECK_SCHEDULE").unwrap_or_else(|_| "0 */10 * * * *".to_string());
     pub static ref CRAWL_QUEUE_SCHEDULE: String =
         env::var("CRAWL_QUEUE_SCHEDULE").unwrap_or_else(|_| "*/30 * * * * *".to_string());
+    pub static ref LANGUAGE_PRIORITY: Vec<String> = split_language_codes(
+        env::var("LANGUAGE_PRIORITY")
+            .expect("LANGUAGE_PRIORITY environment variable must be set")
+            .as_str()
+    )
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
 }
 
 pub fn init_logger() {
