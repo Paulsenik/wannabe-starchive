@@ -57,13 +57,10 @@ fn update_url_params(query: &str, search_type: &str, sort_by: &SortBy, sort_orde
         let url = web_sys::Url::new(&location.href().unwrap()).unwrap();
         let search_params = url.search_params();
 
-        // Set the query parameter
         search_params.set("q", query);
 
-        // Set the search type parameter
         search_params.set("t", search_type);
 
-        // Set sort parameters
         search_params.set("sort_by", &format!("{:?}", sort_by));
         search_params.set("sort_order", &format!("{:?}", sort_order));
 
@@ -162,7 +159,6 @@ pub fn search_app() -> Html {
             let current_sort_by = (*sort_by).clone();
             let current_sort_order = (*sort_order).clone();
 
-            // Update URL parameters
             update_url_params(&query, search_type, &current_sort_by, &current_sort_order);
 
             wasm_bindgen_futures::spawn_local(async move {
@@ -200,7 +196,6 @@ pub fn search_app() -> Html {
         });
     }
 
-    // Callback for search execution
     let on_search = {
         let search_query = search_query.clone();
         let current_page = current_page.clone();
@@ -213,7 +208,6 @@ pub fn search_app() -> Html {
         })
     };
 
-    // Callback for sort by changes - ONLY UPDATE STATE, DON'T SEARCH
     let on_sort_by_change = {
         let sort_by = sort_by.clone();
         Callback::from(move |new_sort_by: SortBy| {
@@ -221,7 +215,6 @@ pub fn search_app() -> Html {
         })
     };
 
-    // Callback for sort order changes - ONLY UPDATE STATE, DON'T SEARCH
     let on_sort_order_change = {
         let sort_order = sort_order.clone();
         Callback::from(move |new_sort_order: SortOrder| {
@@ -229,7 +222,6 @@ pub fn search_app() -> Html {
         })
     };
 
-    // Callback for page changes
     let on_page_change = {
         let search_query = search_query.clone();
         let current_page = current_page.clone();

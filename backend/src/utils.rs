@@ -6,7 +6,6 @@ pub fn parse_iso8601_to_timestamp(date_str: &str) -> i64 {
         return 0;
     }
 
-    // Try to parse with chrono
     use chrono::{DateTime, Utc};
     if let Ok(dt) = date_str.parse::<DateTime<Utc>>() {
         return dt.timestamp();
@@ -49,7 +48,6 @@ pub fn parse_iso8601_duration_to_seconds(duration_str: &str) -> i64 {
     total_seconds as i64
 }
 
-// Helper function to compare values with the specified sort order
 pub fn compare_with_order_float(a: f64, b: f64, order: &SortOrder) -> std::cmp::Ordering {
     match order {
         SortOrder::Asc => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),

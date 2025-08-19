@@ -1,3 +1,4 @@
+use crate::models::AdminToken;
 use crate::services::monitoring_service::{
     add_monitored_channel, add_monitored_playlist, check_channel_for_new_videos,
     check_playlist_for_new_videos, get_monitored_channels_list, get_monitored_playlist_list,
@@ -40,6 +41,7 @@ pub struct MonitoredPlaylistStats {
 
 #[post("/channel", data = "<channel>")]
 pub async fn add_channel(
+    _token: AdminToken,
     channel: Json<NewChannel>,
     state: &State<AppState>,
 ) -> Result<Status, Status> {
@@ -51,13 +53,18 @@ pub async fn add_channel(
 
 #[get("/channel")]
 pub async fn get_channels(
+    _token: AdminToken,
     state: &State<AppState>,
 ) -> Result<Json<Vec<MonitoredChannelStats>>, Status> {
     Ok(Json(get_monitored_channels_list(&state.es_client).await))
 }
 
 #[delete("/channel/<channel_id>")]
-pub async fn remove_channel(channel_id: &str, state: &State<AppState>) -> Result<Status, Status> {
+pub async fn remove_channel(
+    _token: AdminToken,
+    channel_id: &str,
+    state: &State<AppState>,
+) -> Result<Status, Status> {
     if channel_id.is_empty() {
         return Err(Status::BadRequest);
     }
@@ -69,7 +76,11 @@ pub async fn remove_channel(channel_id: &str, state: &State<AppState>) -> Result
 }
 
 #[post("/channel/<channel_id>/activate")]
-pub async fn activate_channel(channel_id: &str, state: &State<AppState>) -> Result<Status, Status> {
+pub async fn activate_channel(
+    _token: AdminToken,
+    channel_id: &str,
+    state: &State<AppState>,
+) -> Result<Status, Status> {
     match set_channel_active(&channel_id, true, &state.es_client).await {
         Ok(_) => Ok(Status::Ok),
         Err(_) => Err(Status::InternalServerError),
@@ -78,6 +89,7 @@ pub async fn activate_channel(channel_id: &str, state: &State<AppState>) -> Resu
 
 #[post("/channel/<channel_id>/deactivate")]
 pub async fn deactivate_channel(
+    _token: AdminToken,
     channel_id: &str,
     state: &State<AppState>,
 ) -> Result<Status, Status> {
@@ -89,6 +101,7 @@ pub async fn deactivate_channel(
 
 #[post("/playlist", data = "<playlist>")]
 pub async fn add_playlist(
+    _token: AdminToken,
     playlist: Json<NewPlaylist>,
     state: &State<AppState>,
 ) -> Result<Status, Status> {
@@ -100,13 +113,18 @@ pub async fn add_playlist(
 
 #[get("/playlist")]
 pub async fn get_playlists(
+    _token: AdminToken,
     state: &State<AppState>,
 ) -> Result<Json<Vec<MonitoredPlaylistStats>>, Status> {
     Ok(Json(get_monitored_playlist_list(&state.es_client).await))
 }
 
 #[delete("/playlist/<playlist_id>")]
-pub async fn remove_playlist(playlist_id: &str, state: &State<AppState>) -> Result<Status, Status> {
+pub async fn remove_playlist(
+    _token: AdminToken,
+    playlist_id: &str,
+    state: &State<AppState>,
+) -> Result<Status, Status> {
     if playlist_id.is_empty() {
         return Err(Status::BadRequest);
     }
@@ -119,6 +137,7 @@ pub async fn remove_playlist(playlist_id: &str, state: &State<AppState>) -> Resu
 
 #[post("/playlist/<playlist_id>/activate")]
 pub async fn activate_playlist(
+    _token: AdminToken,
     playlist_id: &str,
     state: &State<AppState>,
 ) -> Result<Status, Status> {
@@ -130,6 +149,7 @@ pub async fn activate_playlist(
 
 #[post("/playlist/<playlist_id>/deactivate")]
 pub async fn deactivate_playlist(
+    _token: AdminToken,
     playlist_id: &str,
     state: &State<AppState>,
 ) -> Result<Status, Status> {
@@ -140,13 +160,21 @@ pub async fn deactivate_playlist(
 }
 
 #[post("/channel/<channel_id>/check")]
-pub async fn check_channel(channel_id: &str, state: &State<AppState>) -> Result<Status, Status> {
+pub async fn check_channel(
+    _token: AdminToken,
+    channel_id: &str,
+    state: &State<AppState>,
+) -> Result<Status, Status> {
     check_channel_for_new_videos(&channel_id, &state.es_client, &state.video_queue).await;
     Ok(Default::default())
 }
 
 #[post("/playlist/<playlist_id>/check")]
-pub async fn check_playlist(playlist_id: &str, state: &State<AppState>) -> Result<Status, Status> {
+pub async fn check_playlist(
+    _token: AdminToken,
+    playlist_id: &str,
+    state: &State<AppState>,
+) -> Result<Status, Status> {
     match check_playlist_for_new_videos(
         &playlist_id,
         &state.es_client,

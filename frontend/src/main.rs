@@ -17,7 +17,6 @@ pub fn app() -> Html {
     }
 }
 
-// Entry point for the Yew app
 fn main() {
     yew::Renderer::<App>::new().render();
 }

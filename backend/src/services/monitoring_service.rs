@@ -93,7 +93,6 @@ pub async fn get_monitored_playlist_list(es_client: &Elasticsearch) -> Vec<Monit
             .count(elasticsearch::CountParts::Index(&["youtube_videos"]))
             .body(json!({
                 "query": {
-                    // Use term on a keyword field to test exact membership in the array
                     "term": {
                         "playlists.keyword": { "value": pid }
                     }
@@ -234,9 +233,8 @@ async fn fetch_monitored_playlist(input: &str) -> Result<MonitoredPlaylist, anyh
     let client = Client::new();
     let api_key = &*YOUTUBE_API_KEY;
 
-    // Extract playlist ID from different URL formats
     let playlist_id = if input.contains("/playlist?list=") {
-        // Format: https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb
+        // Format: https://www.youtube.com/playlist?list=PLVct2QDhDrB2HMkwQar8kZDPZP7ZdyIAC
         input
             .split("list=")
             .nth(1)
@@ -605,7 +603,7 @@ pub async fn check_playlist_for_new_videos(
     Ok(all_playlist_videos.len() as i64)
 }
 
-// returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
+/// returns the complete video-library-playlist (as list-id) of a channel with the given channel-id
 pub async fn get_channel_playlist_id(channel_id: &str) -> Result<String, anyhow::Error> {
     let client = Client::new();
     let api_key = &*YOUTUBE_API_KEY;
@@ -629,7 +627,7 @@ pub async fn get_channel_playlist_id(channel_id: &str) -> Result<String, anyhow:
     Ok(uploads_playlist_id.to_string())
 }
 
-// Returns list of YT-Videos of a given playlist.
+/// Returns a list of YT-Videos of a given playlist.
 pub async fn fetch_all_playlist_videos(playlist_id: &str) -> Result<Vec<String>, anyhow::Error> {
     let client = Client::new();
     let api_key = &*YOUTUBE_API_KEY;
@@ -662,7 +660,6 @@ pub async fn fetch_all_playlist_videos(playlist_id: &str) -> Result<Vec<String>,
             }
         }
 
-        // Check for next page
         if let Some(token) = response["nextPageToken"].as_str() {
             next_page_token = Some(token.to_string());
         } else {

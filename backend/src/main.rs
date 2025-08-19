@@ -68,7 +68,7 @@ async fn rocket() -> _ {
         .mount(
             "/admin",
             routes![
-                admin_login,
+                admin_login, // Public for login!!
                 admin_stats,
                 get_queue,
                 admin_enqueue,

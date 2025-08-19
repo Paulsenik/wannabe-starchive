@@ -1,9 +1,8 @@
+use js_sys::Reflect;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::JsValue;
 use web_sys::Event;
 use yew::{function_component, html, Callback, Html, Properties};
-// Removed: TargetCast
-use js_sys::Reflect;
-use wasm_bindgen::JsValue;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SortBy {

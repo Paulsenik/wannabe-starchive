@@ -1,8 +1,5 @@
-// Add these to your existing models.rs file
-
-use crate::config::ADMIN_TOKEN;
 use rocket::http::{ContentType, Status};
-use rocket::request::{FromRequest, Outcome, Request};
+use rocket::request::Request;
 use rocket::response::Responder;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::{response, Response};
@@ -68,30 +65,6 @@ pub struct QueueItem {
     pub playlist_id: Option<String>,
 }
 
-// AdminToken FromRequest implementation
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for AdminToken {
-    type Error = &'static str;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let token = request
-            .headers()
-            .get_one("Authorization")
-            .and_then(|auth| auth.strip_prefix("Bearer "));
-
-        match token {
-            Some(t) => {
-                if t == &*ADMIN_TOKEN {
-                    Outcome::Success(AdminToken(t.to_string()))
-                } else {
-                    Outcome::Error((rocket::http::Status::Unauthorized, "Invalid token"))
-                }
-            }
-            None => Outcome::Error((rocket::http::Status::Unauthorized, "Missing token")),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Caption {
     pub video_id: String,
@@ -115,7 +88,6 @@ pub struct SearchResult {
     pub video_id: String,
     pub start_time: f64,
     pub end_time: f64,
-    /// Combined snippet with neighbors included. Highlight tags are preserved on the anchor snippet.
     pub snippet_html: String,
 }
 

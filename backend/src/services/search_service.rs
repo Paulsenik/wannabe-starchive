@@ -398,7 +398,6 @@ async fn fetch_video_metadata_for_sorting(
     Ok(())
 }
 
-// Helper struct to hold all sorting data for a video - simplified with all f64 values
 #[derive(Debug)]
 struct VideoSortData {
     video_id: String,
@@ -435,7 +434,7 @@ async fn get_all_captions_for_video(
     });
 
     let query_body = json!({
-        "size": 1000,  // Large size to get all captions for this video
+        "size": 10000,  // Large size to get all captions for this video
         "query": combined_query,
         "_source": ["video_id", "text", "start_time", "end_time"],
         "highlight": {

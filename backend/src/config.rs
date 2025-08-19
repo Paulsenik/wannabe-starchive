@@ -1,3 +1,8 @@
+use crate::models::AdminToken;
+use crate::services::crawler::{crawl_youtube_video, VideoQueue};
+use crate::services::elasticsearch_service::create_es_index;
+use crate::services::monitoring_service::setup_monitoring;
+use crate::AppState;
 use anyhow::Result;
 use elasticsearch::{
     http::transport::{SingleNodeConnectionPool, TransportBuilder},
@@ -6,17 +11,14 @@ use elasticsearch::{
 use env_logger::Builder;
 use lazy_static::lazy_static;
 use log::{info, LevelFilter};
-use rocket::http::Method;
+use rocket::http::{Method, Status};
+use rocket::request::{FromRequest, Outcome};
+use rocket::Request;
 use rocket_cors::{AllowedHeaders, AllowedOrigins, CorsOptions};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
-
-use crate::services::crawler::{crawl_youtube_video, VideoQueue};
-use crate::services::elasticsearch_service::create_es_index;
-use crate::services::monitoring_service::setup_monitoring;
-use crate::AppState;
 
 lazy_static! {
     pub static ref YOUTUBE_API_KEY: String =
@@ -127,4 +129,27 @@ pub fn create_cors() -> Result<rocket_cors::Cors> {
         .map_err(|e| anyhow::anyhow!("Failed to create CORS options: {}", e))?;
 
     Ok(cors)
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for AdminToken {
+    type Error = &'static str;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let token = request
+            .headers()
+            .get_one("Authorization")
+            .and_then(|auth| auth.strip_prefix("Bearer "));
+
+        match token {
+            Some(t) => {
+                if t == &*ADMIN_TOKEN {
+                    Outcome::Success(AdminToken(t.to_string()))
+                } else {
+                    Outcome::Error((Status::Unauthorized, "Invalid token"))
+                }
+            }
+            None => Outcome::Error((Status::Unauthorized, "Missing token")),
+        }
+    }
 }
