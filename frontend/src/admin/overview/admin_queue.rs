@@ -1,3 +1,4 @@
+use crate::config::BACKEND_URL;
 use crate::router::Route;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
@@ -283,7 +284,7 @@ struct QueueResponse {
 }
 
 async fn load_queue_items() -> Result<Vec<QueueItem>, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/admin/queue", backend_url);
 
     let token = window()
@@ -310,7 +311,7 @@ async fn load_queue_items() -> Result<Vec<QueueItem>, String> {
 }
 
 async fn add_url_to_queue(url: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let api_url = format!("{}/admin/queue", backend_url);
 
     let token = window()
@@ -339,7 +340,7 @@ async fn add_url_to_queue(url: &str) -> Result<(), String> {
 }
 
 async fn delete_queue_item(item_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/admin/queue/{}", backend_url, item_id);
 
     let token = window()

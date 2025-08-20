@@ -1,3 +1,4 @@
+use crate::config::BACKEND_URL;
 use crate::models::{MonitoredChannelStats, MonitoredPlaylistStats};
 use crate::router::Route;
 use gloo_net::http::Request;
@@ -485,7 +486,7 @@ pub fn admin_monitors_page(_props: &AdminChannelsPageProps) -> Html {
 }
 
 async fn load_channels() -> Result<Vec<MonitoredChannelStats>, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/channel", backend_url);
 
     let token = window()
@@ -516,7 +517,7 @@ pub struct NewChannel {
 }
 
 async fn add_channel(input: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/channel", backend_url);
 
     let token = window()
@@ -546,7 +547,7 @@ async fn add_channel(input: &str) -> Result<(), String> {
 }
 
 async fn delete_channel(channel_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/channel/{}", backend_url, channel_id);
 
     let token = window()
@@ -569,7 +570,7 @@ async fn delete_channel(channel_id: &str) -> Result<(), String> {
 }
 
 async fn force_check_complete_channel(channel_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/channel/{}/check", backend_url, channel_id);
 
     let token = window()
@@ -592,7 +593,7 @@ async fn force_check_complete_channel(channel_id: &str) -> Result<(), String> {
 }
 
 async fn load_playlists() -> Result<Vec<MonitoredPlaylistStats>, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/playlist", backend_url);
 
     let token = window()
@@ -618,7 +619,7 @@ async fn load_playlists() -> Result<Vec<MonitoredPlaylistStats>, String> {
 }
 
 async fn add_playlist(input: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/playlist", backend_url);
 
     let token = window()
@@ -648,7 +649,7 @@ async fn add_playlist(input: &str) -> Result<(), String> {
 }
 
 async fn delete_playlist(playlist_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/playlist/{}", backend_url, playlist_id);
 
     let token = window()
@@ -671,7 +672,7 @@ async fn delete_playlist(playlist_id: &str) -> Result<(), String> {
 }
 
 async fn force_check_complete_playlist(playlist_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/monitor/playlist/{}/check", backend_url, playlist_id);
 
     let token = window()
@@ -694,7 +695,7 @@ async fn force_check_complete_playlist(playlist_id: &str) -> Result<(), String> 
 }
 
 async fn toggle_playlist_active(playlist_id: &str, active: bool) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!(
         "{}/monitor/playlist/{}/{}",
         backend_url,
@@ -722,7 +723,7 @@ async fn toggle_playlist_active(playlist_id: &str, active: bool) -> Result<(), S
 }
 
 async fn toggle_channel_active(channel_id: &str, active: bool) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!(
         "{}/monitor/channel/{}/{}",
         backend_url,

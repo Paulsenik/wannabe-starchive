@@ -1,4 +1,5 @@
 mod admin;
+mod config;
 mod models;
 mod router;
 mod search;

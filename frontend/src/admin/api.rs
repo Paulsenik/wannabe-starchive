@@ -1,8 +1,9 @@
 use crate::admin::models::{AdminLoginRequest, AdminLoginResponse, AdminStats};
+use crate::config::BACKEND_URL;
 use gloo_net::http::Request;
 
 pub async fn login_admin(token: &str) -> Result<AdminLoginResponse, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/admin/login", backend_url);
 
     let request_body = AdminLoginRequest {
@@ -27,7 +28,7 @@ pub async fn login_admin(token: &str) -> Result<AdminLoginResponse, String> {
 }
 
 pub async fn load_admin_stats(token: &str) -> Result<AdminStats, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/admin/stats", backend_url);
 
     let response = Request::get(&url)

@@ -1,3 +1,4 @@
+use crate::config::BACKEND_URL;
 use crate::models::VideoMetadata;
 use crate::router::Route;
 use crate::utils::{format_duration, format_number, format_unix_date};
@@ -237,7 +238,7 @@ struct VideosResponse {
 }
 
 async fn load_videos(page: i64, per_page: i64) -> Result<VideosResponse, String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!(
         "{}/admin/videos?page={}&per_page={}",
         backend_url, page, per_page
@@ -266,7 +267,7 @@ async fn load_videos(page: i64, per_page: i64) -> Result<VideosResponse, String>
 }
 
 async fn delete_video(video_id: &str) -> Result<(), String> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{}/admin/video/{}", backend_url, video_id);
 
     let token = window()

@@ -1,3 +1,4 @@
+use crate::config::BACKEND_URL;
 use crate::models::{ErrorResponse, SearchResponse, SearchResult, VideoMetadata};
 use crate::search::search_options::{SortBy, SortOrder};
 use gloo_net::http::Request;
@@ -7,7 +8,7 @@ use yew::prelude::*;
 pub async fn get_raw_video_metadata(
     video_id: &str,
 ) -> Result<gloo_net::http::Response, gloo_net::Error> {
-    let backend_url = "http://localhost:8000";
+    let backend_url = &*BACKEND_URL;
     let url = format!("{backend_url}/video/{video_id}");
     Request::get(&url).send().await
 }
@@ -60,8 +61,6 @@ pub async fn execute_search(
     error_message: UseStateHandle<Option<String>>,
     loading: UseStateHandle<bool>,
 ) {
-    let backend_url = "http://localhost:8000";
-
     let sort_by_str = match sort_by {
         SortBy::Relevance => "relevance",
         SortBy::UploadDate => "upload_date",
@@ -78,7 +77,7 @@ pub async fn execute_search(
 
     let url = format!(
         "{}/search/?query={}&type={}&sort={}&order={}&page={}",
-        backend_url,
+        &*BACKEND_URL,
         urlencoding::encode(&query),
         search_type,
         sort_by_str,

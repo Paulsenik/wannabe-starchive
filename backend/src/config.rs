@@ -27,6 +27,8 @@ lazy_static! {
         env::var("ADMIN_TOKEN").expect("ADMIN_TOKEN environment variable must be set");
     pub static ref ELASTICSEARCH_URL: String =
         env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    pub static ref BACKEND_URL: String =
+        env::var("BACKEND_URL").unwrap_or("http://localhost:8000".parse().unwrap());
     pub static ref CRAWL_BURST_MAX: i32 = env::var("CRAWL_BURST_MAX")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<i32>()
@@ -114,7 +116,7 @@ pub async fn create_app_state() -> Result<AppState> {
 
 pub fn create_cors() -> Result<rocket_cors::Cors> {
     let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::some_exact(&["http://localhost:8080"]))
+        .allowed_origins(AllowedOrigins::some_exact(&[&*BACKEND_URL]))
         .allowed_methods(
             vec![
                 Method::Get,
