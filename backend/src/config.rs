@@ -115,6 +115,8 @@ pub async fn create_app_state() -> Result<AppState> {
 }
 
 pub fn create_cors() -> Result<rocket_cors::Cors> {
+    info!("Setting up CORS: Allowed origin: {}", &*BACKEND_URL);
+
     let cors = CorsOptions::default()
         .allowed_origins(AllowedOrigins::some_exact(&[&*BACKEND_URL]))
         .allowed_methods(

@@ -1,4 +1,4 @@
-use crate::config::BACKEND_URL;
+use crate::env_variable_utils::BACKEND_URL;
 use crate::models::VideoMetadata;
 use crate::router::Route;
 use crate::utils::{format_duration, format_number, format_unix_date};

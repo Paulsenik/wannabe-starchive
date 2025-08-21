@@ -1,4 +1,4 @@
-use crate::config::BACKEND_URL;
+use crate::env_variable_utils::BACKEND_URL;
 use crate::models::{ErrorResponse, SearchResponse, SearchResult, VideoMetadata};
 use crate::search::search_options::{SortBy, SortOrder};
 use gloo_net::http::Request;

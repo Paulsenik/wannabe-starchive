@@ -1,5 +1,5 @@
 use crate::admin::models::{AdminLoginRequest, AdminLoginResponse, AdminStats};
-use crate::config::BACKEND_URL;
+use crate::env_variable_utils::BACKEND_URL;
 use gloo_net::http::Request;
 
 pub async fn login_admin(token: &str) -> Result<AdminLoginResponse, String> {

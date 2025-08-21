@@ -13,6 +13,17 @@ services:
       - esdata:/usr/share/elasticsearch/data # Persist data
     networks:
       - es_net
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    environment:
+      - BACKEND_URL=http://localhost:8000
+      - APP_NAME=Caption-Search
+      - DEBUG_MODE=true
+    depends_on:
+      - elasticsearch
 
 volumes:
   esdata:

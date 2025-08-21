@@ -1,4 +1,4 @@
-use crate::config::BACKEND_URL;
+use crate::env_variable_utils::BACKEND_URL;
 use crate::models::{MonitoredChannelStats, MonitoredPlaylistStats};
 use crate::router::Route;
 use gloo_net::http::Request;

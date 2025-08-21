@@ -3,6 +3,7 @@ use crate::admin::overview::admin_monitor::AdminMonitorsPage;
 use crate::admin::overview::admin_queue::AdminQueuePage;
 use crate::admin::overview::admin_videos::AdminVideosPage;
 use crate::admin::overview::AdminPage;
+use crate::env_variable_utils::get_app_name;
 use crate::models::SearchResult;
 use crate::search::api::execute_search;
 use crate::search::components::{ResultsList, SearchBar};
@@ -238,7 +239,7 @@ pub fn search_app() -> Html {
         <div class="min-h-screen flex flex-col items-center justify-center bg-gray-700 p-4">
             <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-2xl">
                 <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
-                    {"YouTube Caption Search"}
+                    {get_app_name()}
                 </h1>
 
                 <div class="text-center mb-4">
