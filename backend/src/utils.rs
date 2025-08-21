@@ -55,8 +55,17 @@ pub fn compare_with_order_float(a: f64, b: f64, order: &SortOrder) -> std::cmp::
     }
 }
 pub fn compare_with_order_int(a: i64, b: i64, order: &SortOrder) -> std::cmp::Ordering {
-    match order {
-        SortOrder::Asc => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-        SortOrder::Desc => b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal),
+    compare_with_order_float(a as f64, b as f64, order)
+}
+
+pub fn extract_youtube_video_id(url: &str) -> Option<String> {
+    if let Some(captures) = regex::Regex::new(
+        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})",
+    )
+    .ok()?
+    .captures(url)
+    {
+        return captures.get(1).map(|m| m.as_str().to_string());
     }
+    None
 }
