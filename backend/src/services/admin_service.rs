@@ -7,6 +7,7 @@ use crate::services::crawler::VideoQueue;
 use crate::services::monitoring_service::{
     get_monitored_channels_list, get_monitored_playlist_list,
 };
+use crate::utils;
 use anyhow::Result;
 use elasticsearch::{DeleteByQueryParts, DeleteParts, Elasticsearch, SearchParts};
 use serde_json::{json, Value};
@@ -63,8 +64,8 @@ pub async fn enqueue_video(
     video_queue: &Arc<VideoQueue>,
     url: &str,
 ) -> Result<AdminEnqueueResponse> {
-    let video_id =
-        extract_youtube_video_id(url).ok_or_else(|| anyhow::anyhow!("Invalid YouTube URL"))?;
+    let video_id = utils::extract_youtube_video_id(url)
+        .ok_or_else(|| anyhow::anyhow!("Invalid YouTube URL"))?;
 
     video_queue.add_video(video_id.clone());
 
@@ -169,25 +170,22 @@ pub async fn get_videos_paginated(
 }
 
 async fn get_index_count(es_client: &Elasticsearch, index: &str) -> i64 {
-    let search_body = json!({
-        "size": 0,
+    let count_body = json!({
         "query": {
             "match_all": {}
         }
     });
 
     match es_client
-        .search(SearchParts::Index(&[index]))
-        .body(search_body)
+        .count(elasticsearch::CountParts::Index(&[index]))
+        .body(count_body)
         .send()
         .await
     {
         Ok(response) => {
             if response.status_code().is_success() {
                 if let Ok(json_response) = response.json::<Value>().await {
-                    return json_response["hits"]["total"]["value"]
-                        .as_i64()
-                        .unwrap_or(0);
+                    return json_response["count"].as_i64().unwrap_or(0);
                 }
             }
         }
@@ -236,18 +234,6 @@ async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<String> {
         Err(e) => {
             log::error!("Failed to get last crawl time: {e:?}");
         }
-    }
-    None
-}
-
-fn extract_youtube_video_id(url: &str) -> Option<String> {
-    if let Some(captures) = regex::Regex::new(
-        r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})",
-    )
-    .ok()?
-    .captures(url)
-    {
-        return captures.get(1).map(|m| m.as_str().to_string());
     }
     None
 }
