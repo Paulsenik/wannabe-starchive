@@ -22,8 +22,6 @@ services:
       - BACKEND_URL=http://localhost:8000
       - APP_NAME=Caption-Search
       - DEBUG_MODE=true
-    depends_on:
-      - elasticsearch
 
 volumes:
   esdata:

@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use web_sys::window;
 
 lazy_static! {
-    pub static ref BACKEND_URL: String = get_api_base_url();
+    pub static ref BACKEND_URL: String = get_backend_url();
 }
 
 pub fn get_env_var(key: &str) -> Option<String> {
@@ -29,8 +29,8 @@ pub fn get_env_var(key: &str) -> Option<String> {
     }
 }
 
-pub fn get_api_base_url() -> String {
-    get_env_var("API_BASE_URL").unwrap_or_else(|| "http://localhost:8000".to_string())
+pub fn get_backend_url() -> String {
+    get_env_var("BACKEND_URL").unwrap_or_else(|| "http://localhost:8000".to_string())
 }
 
 pub fn get_app_name() -> String {

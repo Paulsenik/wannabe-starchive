@@ -5,7 +5,7 @@ mod router;
 mod search;
 mod utils;
 
-use crate::env_variable_utils::{get_api_base_url, get_app_name, is_debug_mode};
+use crate::env_variable_utils::{get_app_name, get_backend_url, is_debug_mode};
 use crate::router::{switch, Route};
 use web_sys::console;
 use yew::prelude::*;
@@ -27,7 +27,7 @@ fn main() {
         &format!(
             "NAME: \"{}\", API: \"{}\" DEBUG: \"{}\"",
             get_app_name(),
-            get_api_base_url(),
+            get_backend_url(),
             is_debug_mode()
         )
         .into(),

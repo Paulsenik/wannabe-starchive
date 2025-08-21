@@ -29,6 +29,8 @@ lazy_static! {
         env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
     pub static ref BACKEND_URL: String =
         env::var("BACKEND_URL").unwrap_or("http://localhost:8000".parse().unwrap());
+    pub static ref FRONTEND_URL: String =
+        env::var("FRONTEND_URL").unwrap_or("http://localhost:8080".parse().unwrap());
     pub static ref CRAWL_BURST_MAX: i32 = env::var("CRAWL_BURST_MAX")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<i32>()
@@ -118,7 +120,7 @@ pub fn create_cors() -> Result<rocket_cors::Cors> {
     info!("Setting up CORS: Allowed origin: {}", &*BACKEND_URL);
 
     let cors = CorsOptions::default()
-        .allowed_origins(AllowedOrigins::some_exact(&[&*BACKEND_URL]))
+        .allowed_origins(AllowedOrigins::some_exact(&[&*FRONTEND_URL]))
         .allowed_methods(
             vec![
                 Method::Get,
