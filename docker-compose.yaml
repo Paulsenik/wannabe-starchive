@@ -1,27 +1,57 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.3 # Use a specific version
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.0.3
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false # Disable security for development simplicity
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m # Allocate less memory for development
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports:
       - "9200:9200"
       - "9300:9300"
     volumes:
-      - esdata:/usr/share/elasticsearch/data # Persist data
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
     networks:
       - es_net
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - YOUTUBE_API_KEY=${API_KEY}
+      - ADMIN_TOKEN="BENE_KANN_KEIN_COUNTER_STRIKE123"
+      - CRAWL_BURST_MAX=2
+      - MONITOR_CHECK_SCHEDULE="0 */60 * * * *"
+      - CRAWL_QUEUE_SCHEDULE="*/30 * * * * *"
+      - LANGUAGE_PRIORITY="en,en-GB,en-US,de,de-DE"
+      - FRONTEND_URL="http://localhost:8080"
+      - BACKEND_URL="http://localhost:8000"
+      - RUST_BACKTRACE=1
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - es_net
+
   frontend:
     build:
       context: ./frontend
     ports:
       - "8080:80"
     environment:
-      - BACKEND_URL=http://localhost:8000
-      - APP_NAME=Caption-Search
-      - DEBUG_MODE=true
+      - BACKEND_URL="http://localhost:8000"
+      - APP_NAME="Caption-Search"
+      - DEBUG_MODE="true"
+    networks:
+      - es_net
 
 volumes:
   esdata:
