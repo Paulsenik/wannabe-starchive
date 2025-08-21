@@ -24,17 +24,18 @@ services:
       context: ./backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-      - YOUTUBE_API_KEY=${API_KEY}
-      - ADMIN_TOKEN="BENE_KANN_KEIN_COUNTER_STRIKE123"
-      - CRAWL_BURST_MAX=2
-      - MONITOR_CHECK_SCHEDULE="0 */60 * * * *"
-      - CRAWL_QUEUE_SCHEDULE="*/30 * * * * *"
-      - LANGUAGE_PRIORITY="en,en-GB,en-US,de,de-DE"
-      - FRONTEND_URL="http://localhost:8080"
-      - BACKEND_URL="http://localhost:8000"
-      - RUST_BACKTRACE=1
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+      ADMIN_TOKEN: "BENE_KANN_KEIN_COUNTER_STRIKE123"
+      CRAWL_BURST_MAX: 2
+      MONITOR_CHECK_SCHEDULE: "0 */60 * * * *"
+      CRAWL_QUEUE_SCHEDULE: "*/30 * * * * *"
+      LANGUAGE_PRIORITY: "en,en-GB,en-US,de,de-DE"
+      FRONTEND_URL: "http://localhost:8080"
+      BACKEND_URL: "http://127.0.0.1:8000"
+      RUST_BACKTRACE: 1
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -47,9 +48,9 @@ services:
     ports:
       - "8080:80"
     environment:
-      - BACKEND_URL="http://localhost:8000"
-      - APP_NAME="Caption-Search"
-      - DEBUG_MODE="true"
+      BACKEND_URL: "http://localhost:8000"
+      APP_NAME: "Caption-Search"
+      DEBUG_MODE: "true"
     networks:
       - es_net
 

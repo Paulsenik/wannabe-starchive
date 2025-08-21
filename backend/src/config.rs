@@ -21,35 +21,27 @@ use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 lazy_static! {
-    pub static ref YOUTUBE_API_KEY: String = env::var("YOUTUBE_API_KEY")
-        .expect("YOUTUBE_API_KEY environment variable must be set")
-        .replace("\"", "");
-    pub static ref ADMIN_TOKEN: String = env::var("ADMIN_TOKEN")
-        .expect("ADMIN_TOKEN environment variable must be set")
-        .replace("\"", "");
-    pub static ref ELASTICSEARCH_URL: String = env::var("ELASTICSEARCH_URL")
-        .unwrap_or_else(|_| "http://localhost:9200".to_string())
-        .replace("\"", "");
-    pub static ref BACKEND_URL: String = env::var("BACKEND_URL")
-        .unwrap_or("http://localhost:8000".parse().unwrap())
-        .replace("\"", "");
-    pub static ref FRONTEND_URL: String = env::var("FRONTEND_URL")
-        .unwrap_or("http://localhost:8080".parse().unwrap())
-        .replace("\"", "");
+    pub static ref YOUTUBE_API_KEY: String =
+        env::var("YOUTUBE_API_KEY").expect("YOUTUBE_API_KEY environment variable must be set");
+    pub static ref ADMIN_TOKEN: String =
+        env::var("ADMIN_TOKEN").expect("ADMIN_TOKEN environment variable must be set");
+    pub static ref ELASTICSEARCH_URL: String =
+        env::var("ELASTICSEARCH_URL").unwrap_or_else(|_| "http://localhost:9200".to_string());
+    pub static ref BACKEND_URL: String =
+        env::var("BACKEND_URL").unwrap_or("http://localhost:8000".parse().unwrap());
+    pub static ref FRONTEND_URL: String =
+        env::var("FRONTEND_URL").unwrap_or("http://localhost:8080".parse().unwrap());
     pub static ref CRAWL_BURST_MAX: i32 = env::var("CRAWL_BURST_MAX")
         .unwrap_or_else(|_| "1".to_string())
         .parse::<i32>()
         .unwrap_or(1);
-    pub static ref MONITOR_CHECK_SCHEDULE: String = env::var("MONITOR_CHECK_SCHEDULE")
-        .unwrap_or_else(|_| "0 */10 * * * *".to_string())
-        .replace("\"", "");
-    pub static ref CRAWL_QUEUE_SCHEDULE: String = env::var("CRAWL_QUEUE_SCHEDULE")
-        .unwrap_or_else(|_| "*/30 * * * * *".to_string())
-        .replace("\"", "");
+    pub static ref MONITOR_CHECK_SCHEDULE: String =
+        env::var("MONITOR_CHECK_SCHEDULE").unwrap_or_else(|_| "0 */10 * * * *".to_string());
+    pub static ref CRAWL_QUEUE_SCHEDULE: String =
+        env::var("CRAWL_QUEUE_SCHEDULE").unwrap_or_else(|_| "*/30 * * * * *".to_string());
     pub static ref LANGUAGE_PRIORITY: Vec<String> = split_language_codes(
         env::var("LANGUAGE_PRIORITY")
             .expect("LANGUAGE_PRIORITY environment variable must be set")
-            .replace("\"", "")
             .as_str()
     )
     .into_iter()
@@ -64,6 +56,16 @@ pub fn init_logger() {
 
 pub fn load_environment() {
     dotenv::dotenv().ok();
+
+    info!("YOUTUBE_API_KEY: {}", &*YOUTUBE_API_KEY);
+    info!("CRAWL_QUEUE_SCHEDULE: {}", &*CRAWL_QUEUE_SCHEDULE);
+    info!("MONITOR_CHECK_SCHEDULE: {}", &*MONITOR_CHECK_SCHEDULE);
+    info!("LANGUAGE_PRIORITY: {:?}", &*LANGUAGE_PRIORITY);
+    info!("CRAWL_BURST_MAX: {}", &*CRAWL_BURST_MAX);
+    info!("ELASTICSEARCH_URL: {}", &*ELASTICSEARCH_URL);
+    info!("BACKEND_URL: {}", &*BACKEND_URL);
+    info!("FRONTEND_URL: {}", &*FRONTEND_URL);
+    info!("ADMIN_TOKEN: {}", &*ADMIN_TOKEN);
 }
 
 pub fn create_elasticsearch_client() -> Result<Elasticsearch> {

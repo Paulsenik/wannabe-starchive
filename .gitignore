@@ -11,3 +11,5 @@ out/
 *.lock
 /frontend/dist
 /backend/.env
+
+.env

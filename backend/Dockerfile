@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+# Copy Rocket configuration file
+COPY Rocket.toml ./
 
 # Build the application
 RUN cargo build --release
@@ -26,6 +28,8 @@ WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/backend /app/backend
+# Copy Rocket configuration to runtime stage
+COPY --from=builder /app/Rocket.toml /app/Rocket.toml
 
 # Expose the port your Rocket app runs on (typically 8000)
 EXPOSE 8000
