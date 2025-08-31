@@ -68,7 +68,7 @@ Deploy:
 
 1. Elasticsearch
     ```bash
-    docker compose up
+    docker compose up elasticsearch
     ```
 2. Backend
     ```bash

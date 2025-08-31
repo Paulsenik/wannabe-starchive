@@ -29,15 +29,11 @@ pub fn remove_admin_token() -> Result<(), String> {
     Ok(())
 }
 
-pub fn format_iso8601_time_since(iso_date: &str) -> String {
-    if iso_date == "Never" {
-        return String::from("Never");
-    }
-
+pub fn format_unix_time_since(unix_timestamp: u64) -> String {
     let now = chrono::Utc::now();
-    let date = match chrono::DateTime::parse_from_rfc3339(iso_date) {
-        Ok(d) => d.with_timezone(&chrono::Utc),
-        Err(_) => return String::from("Invalid date"),
+    let date = match chrono::DateTime::<chrono::Utc>::from_timestamp(unix_timestamp as i64, 0) {
+        Some(d) => d,
+        None => return String::from("Invalid date"),
     };
 
     let duration = now.signed_duration_since(date);

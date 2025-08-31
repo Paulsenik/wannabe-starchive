@@ -196,7 +196,7 @@ async fn get_index_count(es_client: &Elasticsearch, index: &str) -> i64 {
     0
 }
 
-async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<String> {
+async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<i64> {
     let search_body = json!({
         "size": 1,
         "query": {
@@ -223,9 +223,8 @@ async fn get_last_crawl_time(es_client: &Elasticsearch) -> Option<String> {
                 if let Ok(json_response) = response.json::<Value>().await {
                     if let Some(hits) = json_response["hits"]["hits"].as_array() {
                         if let Some(first_hit) = hits.first() {
-                            return first_hit["_source"]["crawl_date"]
-                                .as_str()
-                                .map(String::from);
+                            // Extract as i64 (Unix timestamp) and convert to string
+                            return first_hit["_source"]["crawl_date"].as_i64();
                         }
                     }
                 }

@@ -15,7 +15,7 @@ pub struct AdminLoginResponse {
 pub struct AdminStats {
     pub total_videos: i64,
     pub total_captions: i64,
-    pub last_crawl_time: Option<String>,
+    pub last_crawl_time: Option<i64>,
     pub active_monitors: i32,
     pub queue_size: usize,
 }
