@@ -9,6 +9,23 @@ Inspired by [Starchives](https://github.com/kyjackson/starchives?tab=readme-ov-f
 - [yt-stranscript-rs](https://crates.io/crates/yt-transcript-rs)
 - ElasticSearch
 
+## Deploy
+
+```bash
+# Create the directory if it doesn't exist
+sudo mkdir -p /deployment/wannabe-starchive/data
+
+# Change ownership to UID 1000 (elasticsearch user)
+sudo chown -R 1000:1000 /deployment/wannabe-starchive/data
+
+# Set proper permissions
+sudo chmod -R 755 /deployment/wannabe-starchive/data
+```
+
+```bash
+docker compose up --build
+```
+
 ## Dependencies
 
 - Docker Compose

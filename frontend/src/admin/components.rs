@@ -1,6 +1,7 @@
 use crate::admin::models::AdminStats;
 use crate::admin::utils::format_iso8601_time_since;
 use crate::router::Route;
+use crate::utils::format_number;
 use yew::prelude::*;
 use yew_router::prelude::*;
 
@@ -117,12 +118,12 @@ pub fn dashboard(props: &DashboardProps) -> Html {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <Link<Route> to={Route::AdminVideos} classes="bg-blue-600 text-white p-4 rounded text-center hover:bg-blue-700">
                     <div class="font-semibold text-lg mb-2">{"Manage Videos"}</div>
-                    <div class="text-3xl font-bold">{props.stats.total_videos}</div>
+                    <div class="text-3xl font-bold">{format_number(props.stats.total_videos)}</div>
                     <div class="text-sm opacity-80">{"Total Videos"}</div>
                 </Link<Route>>
                 <Link<Route> to={Route::AdminCaptions} classes="bg-green-600 text-white p-4 rounded text-center hover:bg-green-700">
                     <div class="font-semibold text-lg mb-2">{"Manage Captions"}</div>
-                    <div class="text-3xl font-bold">{props.stats.total_captions}</div>
+                    <div class="text-3xl font-bold">{format_number(props.stats.total_captions)}</div>
                     <div class="text-sm opacity-80">{"Total Captions"}</div>
                 </Link<Route>>
                 <Link<Route> to={Route::AdminQueue} classes="bg-purple-600 text-white p-4 rounded text-center hover:bg-purple-700">
@@ -131,7 +132,7 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                         if props.stats.queue_size > 0 {
                             html! {
                                 <>
-                                    <div class="text-3xl font-bold">{props.stats.queue_size}</div>
+                                    <div class="text-3xl font-bold">{format_number(props.stats.queue_size as i64)}</div>
                                     <div class="text-sm opacity-80">{"Items in Queue"}</div>
                                 </>
                             }
