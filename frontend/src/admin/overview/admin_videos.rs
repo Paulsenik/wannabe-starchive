@@ -79,7 +79,7 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
 
     html! {
         <div class="min-h-screen bg-gray-700 p-4">
-            <div class="max-w-6xl mx-auto">
+            <div class="mx-auto">
                 <div class="bg-white rounded-lg shadow-lg p-8">
                     <div class="flex justify-between items-center mb-6">
                         <h1 class="text-3xl font-bold text-gray-800">
@@ -116,15 +116,15 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                         <thead class="bg-gray-50">
                                             <tr>
                                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Title"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Channel"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Upload Date"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Crawl Date"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Duration"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Views"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Likes"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Comments"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Captions"}</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Actions"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"📺"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Upload 📅"}</th>
+                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{"Crawl 📅"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"⏱️"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"👁️"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"👍"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"💬"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"📄"}</th>
+                                                <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">{"🔧"}</th>
                                             </tr>
                                         </thead>
                                         <tbody class="bg-white divide-y divide-gray-200">
@@ -135,34 +135,34 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
 
                                                     html! {
                                                         <tr key={video.video_id.clone()}>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
                                                                 <div class="max-w-xs truncate"><a href={format!("https://www.youtube.com/watch?v={}", video.video_id)} class="text-blue-600 hover:underline">{&video.title}</a></div>
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
                                                                 <a href={format!("https://www.youtube.com/channel/{}",&video.channel_id)} class="text-blue-600 hover:underline">{&video.channel_name}</a>
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
                                                                 {format_unix_date(video.upload_date)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
                                                                 {format_unix_date(video.crawl_date)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-right text-sm text-gray-900">
                                                                 {format_duration(video.duration)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-right text-sm text-gray-900">
                                                                 {format_number(video.views)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-right text-sm text-gray-900">
                                                                 {format_number(video.likes)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-right text-sm text-gray-900">
                                                                 {format_number(video.comment_count)}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                {if video.has_captions { "Yes" } else { "No" }}
+                                                            <td class="px-6 py-3 whitespace-nowrap text-center text-sm text-gray-900">
+                                                                {if video.has_captions { "✅" } else { "❌" }}
                                                             </td>
-                                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                            <td class="px-6 py-3 whitespace-nowrap text-sm font-medium">
                                                                 <button
                                                                     onclick={
                                                                         let video_id = video_id.clone();
@@ -201,10 +201,34 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                     })
                                                 }
                                                 disabled={*current_page_display <= 1}
-                                                class="px-3 py-2 border rounded-md disabled:opacity-50"
+                                                class="px-3 py-3 border rounded-md disabled:opacity-50"
                                             >
                                                 {"Previous"}
                                             </button>
+                                            <div class="flex items-center">
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max={((*total_items_display as f64 / *per_page_display as f64).ceil() as i64).to_string()}
+                                                    value={current_page_display.to_string()}
+                                                    onchange={
+                                                        let current_page = current_page_display.clone();
+                                                        let total_items = total_items_display.clone();
+                                                        let per_page = per_page_display.clone();
+                                                        Callback::from(move |e: Event| {
+                                                            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                            if let Ok(page) = input.value().parse::<i64>() {
+                                                                let max_page = (*total_items as f64 / *per_page as f64).ceil() as i64;
+                                                                if page >= 1 && page <= max_page {
+                                                                    current_page.set(page);
+                                                                }
+                                                            }
+                                                        })
+                                                    }
+                                                    class="w-16 px-2 py-1 border rounded-md mx-2 text-center"
+                                                />
+                                            </div>
+                                            <div class="flex items-center">{format!("/ {}",{(*total_items_display as f64 / *per_page_display as f64).ceil() as i64})}</div>
                                             <button
                                                 onclick={
                                                     let current_page = current_page_display.clone();
@@ -217,7 +241,7 @@ pub fn admin_videos_page(_props: &AdminVideosPageProps) -> Html {
                                                     })
                                                 }
                                                 disabled={(*current_page_display * *per_page_display) >= *total_items}
-                                                class="px-3 py-2 border rounded-md disabled:opacity-50"
+                                                class="px-3 py-3 border rounded-md disabled:opacity-50"
                                             >
                                                 {"Next"}
                                             </button>
