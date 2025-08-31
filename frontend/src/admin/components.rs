@@ -1,5 +1,5 @@
 use crate::admin::models::AdminStats;
-use crate::admin::utils::format_iso8601_time_since;
+use crate::admin::utils::format_unix_time_since;
 use crate::router::Route;
 use crate::utils::format_number;
 use yew::prelude::*;
@@ -26,36 +26,6 @@ pub fn error_message(props: &ErrorMessageProps) -> Html {
 #[derive(Properties, PartialEq)]
 pub struct StatsPanelProps {
     pub stats: Option<AdminStats>,
-}
-
-#[function_component(StatsPanel)]
-pub fn stats_panel(props: &StatsPanelProps) -> Html {
-    if let Some(stats_data) = &props.stats {
-        html! {
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div class="bg-blue-100 p-4 rounded-lg">
-                    <h3 class="text-lg font-semibold text-blue-800">{"Total Videos"}</h3>
-                    <p class="text-2xl font-bold text-blue-600">{stats_data.total_videos}</p>
-                </div>
-                <div class="bg-green-100 p-4 rounded-lg">
-                    <h3 class="text-lg font-semibold text-green-800">{"Total Captions"}</h3>
-                    <p class="text-2xl font-bold text-green-600">{stats_data.total_captions}</p>
-                </div>
-                <div class="bg-purple-100 p-4 rounded-lg">
-                    <h3 class="text-lg font-semibold text-purple-800">{"Last Crawl"}</h3>
-                    <p class="text-2xl font-bold text-purple-600">
-                        {format_iso8601_time_since(stats_data.last_crawl_time.as_deref().unwrap_or("Never"))}
-                    </p>
-                </div>
-            </div>
-        }
-    } else {
-        html! {
-            <div class="bg-gray-100 p-4 rounded-lg mb-6">
-                <p class="text-gray-600">{"Loading stats..."}</p>
-            </div>
-        }
-    }
 }
 
 #[derive(Properties, PartialEq)]
@@ -139,7 +109,14 @@ pub fn dashboard(props: &DashboardProps) -> Html {
                         } else {
                             html! {
                                 <>
-                                    <div class="text-3xl font-bold">{format_iso8601_time_since(props.stats.last_crawl_time.as_deref().unwrap_or("Never"))}</div>
+                                    <div class="text-3xl font-bold">
+                                        {
+                                            match &props.stats.last_crawl_time {
+                                                Some(crawled_at) => format_unix_time_since(*crawled_at as u64),
+                                                None => "Never".to_string(),
+                                            }
+                                        }
+                                    </div>
                                     <div class="text-sm opacity-80">{"Last Crawl"}</div>
                                 </>
                             }
